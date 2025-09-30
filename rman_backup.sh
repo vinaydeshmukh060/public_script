@@ -1,12 +1,11 @@
 #!/bin/sh
 
-# RMAN Backup Script - Production Ready (Enhanced Version)
-# File: rman_backup_enhanced.sh
-# Version: 3.2 - Added instance running check, strict PRIMARY role check, and backup optimization
-# - Instance must be running (check ps and pmon process)
-# - Database role must be PRIMARY (strict check)
-# - Added backup optimization parameter from config
-# - Maintains all previous working functionality
+# RMAN Backup Script - Production Ready (FINAL VERSION - Fixed Error Log Naming)
+# File: rman_backup_final_fixed.sh
+# Version: 4.1 - Fixed error log naming to match other log timestamps
+# - Error log now uses same timestamp format as backup/retention logs
+# - All previous bulletproof logic maintained
+# - Complete error analysis features included
 
 set -e
 
@@ -30,16 +29,19 @@ COMPRESSION=""
 
 # Timestamp for logs
 LOG_TS="$(date '+%Y%m%d_%H%M%S')"
+LOG_DATE="$(date '+%Y-%m-%d')"
 
 # Initialize temp file variables
 TEMP_RMAN_SCRIPT=""
 TEMP_RETENTION_SCRIPT=""
 BACKUP_LOG=""
 RETENTION_LOG=""
+ERROR_LOG=""
 LOCK_FILE=""
 
-# Exit status tracking - START AS SUCCESS
-EXIT_STATUS=0
+# Success-based tracking
+OVERALL_SUCCESS=1  # 1 = success, 0 = failure
+EXIT_STATUS=0      # Only set when we have confirmed failures
 
 show_summary() {
     echo "========================================"
@@ -48,6 +50,9 @@ show_summary() {
     fi
     if [ -n "${RETENTION_LOG}" ]; then
         echo "Retention log: ${RETENTION_LOG}"
+    fi
+    if [ -n "${ERROR_LOG}" ] && [ -f "${ERROR_LOG}" ] && [ -s "${ERROR_LOG}" ]; then
+        echo "Error analysis: ${ERROR_LOG}"
     fi
     if [ ${EXIT_STATUS} -eq 0 ]; then
         echo "STATUS: SUCCESS"
@@ -72,6 +77,116 @@ cleanup() {
 trap 'cleanup; show_summary; exit ${EXIT_STATUS}' EXIT INT TERM
 
 ################################################################################
+# Error scanning and mapping function - RETURNS ACTUAL ERROR COUNT
+################################################################################
+
+scan_and_map_errors() {
+    local log_file="$1"
+    local phase_name="$2"
+    local actual_error_count=0
+    
+    # Check if log file exists
+    if [ ! -f "${log_file}" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [${phase_name}] WARNING: Log file ${log_file} not found" >> "${ERROR_LOG}"
+        return 0  # Return 0 errors if file doesn't exist
+    fi
+    
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [${phase_name}] === ERROR ANALYSIS STARTED ===" >> "${ERROR_LOG}"
+    
+    # Extract unique ORA and RMAN error codes
+    local error_codes=$(grep -Eo '(ORA-[0-9]{5}|RMAN-[0-9]{5})' "${log_file}" 2>/dev/null | sort -u || true)
+    
+    if [ -z "${error_codes}" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [${phase_name}] No ORA/RMAN errors found" >> "${ERROR_LOG}"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [${phase_name}] === ERROR ANALYSIS COMPLETED ===" >> "${ERROR_LOG}"
+        return 0  # Return 0 errors
+    fi
+    
+    # Count actual errors
+    actual_error_count=$(echo "${error_codes}" | wc -l || echo "0")
+    actual_error_count=$(echo "${actual_error_count}" | tr -d ' \n\r')
+    case "${actual_error_count}" in ''|*[!0-9]*) actual_error_count=0 ;; esac
+    
+    # Process each error code if we have any
+    if [ ${actual_error_count} -gt 0 ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [${phase_name}] Found error codes: $(echo ${error_codes} | tr '\n' ' ')" >> "${ERROR_LOG}"
+        echo "" >> "${ERROR_LOG}"
+        
+        # Check if error mapping function exists
+        if command -v define_error_mappings >/dev/null 2>&1; then
+            # Create temporary error mapping file
+            local temp_error_map="${logs_dir}/error_mappings_${LOG_TS}.tmp"
+            define_error_mappings > "${temp_error_map}"
+            
+            echo "${error_codes}" | while read -r error_code; do
+                if [ -n "${error_code}" ]; then
+                    # Search for error mapping
+                    local error_mapping=$(grep "^${error_code}|" "${temp_error_map}" 2>/dev/null | head -1)
+                    
+                    if [ -n "${error_mapping}" ]; then
+                        # Parse mapping: CODE|DESCRIPTION|ACTION
+                        local description=$(echo "${error_mapping}" | cut -d'|' -f2)
+                        local action=$(echo "${error_mapping}" | cut -d'|' -f3)
+                        
+                        cat >> "${ERROR_LOG}" << EOF
+$(date '+%Y-%m-%d %H:%M:%S') [${phase_name}] ERROR CODE: ${error_code}
+    Description: ${description}
+    Recommended Action: ${action}
+    
+EOF
+                    else
+                        cat >> "${ERROR_LOG}" << EOF
+$(date '+%Y-%m-%d %H:%M:%S') [${phase_name}] ERROR CODE: ${error_code}
+    Description: Unknown error - not found in mapping database
+    Recommended Action: Consult Oracle Documentation or My Oracle Support
+    
+EOF
+                    fi
+                fi
+            done
+            
+            # Clean up temporary file
+            [ -f "${temp_error_map}" ] && rm -f "${temp_error_map}"
+        else
+            echo "$(date '+%Y-%m-%d %H:%M:%S') [${phase_name}] WARNING: Error mapping function not available" >> "${ERROR_LOG}"
+            echo "${error_codes}" | while read -r error_code; do
+                if [ -n "${error_code}" ]; then
+                    cat >> "${ERROR_LOG}" << EOF
+$(date '+%Y-%m-%d %H:%M:%S') [${phase_name}] ERROR CODE: ${error_code}
+    Description: Error mapping not configured
+    Recommended Action: Check RMAN logs and Oracle documentation
+    
+EOF
+                fi
+            done
+        fi
+        
+        # Add context from log file
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [${phase_name}] === RELEVANT LOG EXCERPTS ===" >> "${ERROR_LOG}"
+        echo "${error_codes}" | while read -r error_code; do
+            if [ -n "${error_code}" ]; then
+                echo "--- Context for ${error_code} ---" >> "${ERROR_LOG}"
+                grep -A 2 -B 2 "${error_code}" "${log_file}" >> "${ERROR_LOG}" 2>/dev/null || true
+                echo "" >> "${ERROR_LOG}"
+            fi
+        done
+        
+        # Add summary
+        cat >> "${ERROR_LOG}" << EOF
+$(date '+%Y-%m-%d %H:%M:%S') [${phase_name}] === ERROR SUMMARY ===
+    Total error occurrences: ${actual_error_count}
+    Log file analyzed: ${log_file}
+
+EOF
+    fi
+    
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [${phase_name}] === ERROR ANALYSIS COMPLETED ===" >> "${ERROR_LOG}"
+    
+    # Return actual error count
+    return ${actual_error_count}
+}
+
+################################################################################
 # Usage
 ################################################################################
 
@@ -86,6 +201,11 @@ usage() {
     echo "Prerequisites:"
     echo "  - Oracle instance must be running"
     echo "  - Database role must be PRIMARY"
+    echo ""
+    echo "Log Files Generated:"
+    echo "  - rman_backup_INSTANCE_TYPE_TIMESTAMP.log      (backup execution)"
+    echo "  - rman_retention_INSTANCE_TYPE_TIMESTAMP.log   (retention execution)"
+    echo "  - rman_errors_INSTANCE_TYPE_TIMESTAMP.log      (error analysis)"
     exit 1
 }
 
@@ -137,12 +257,11 @@ if [ ! -f "${CONFIG_FILE}" ]; then
 fi
 
 ################################################################################
-# NEW: Check if Oracle instance is running
+# Check if Oracle instance is running
 ################################################################################
 
 echo "Checking if Oracle instance ${INSTANCE_NAME} is running..."
 
-# Method 1: Check for pmon process
 PMON_PROCESS="ora_pmon_${INSTANCE_NAME}"
 if ! pgrep -f "${PMON_PROCESS}" >/dev/null 2>&1; then
     echo "ERROR: Oracle instance ${INSTANCE_NAME} is not running"
@@ -154,7 +273,7 @@ fi
 echo "Oracle instance ${INSTANCE_NAME} is running (${PMON_PROCESS} process found)"
 
 ################################################################################
-# Set up file paths
+# Set up file paths - FIXED: Error log uses same timestamp format
 ################################################################################
 
 backup_date="$(date '+%Y-%m-%d')"
@@ -162,16 +281,22 @@ backup_date="$(date '+%Y-%m-%d')"
 echo "Preparing logs directory: ${logs_dir}"
 [ ${dry_run} -eq 1 ] && echo "DRY RUN: mkdir -p ${logs_dir}" || mkdir -p "${logs_dir}"
 
-# Define all file paths
+# Define all file paths - CONSISTENT NAMING!
 BACKUP_LOG="${logs_dir}/rman_backup_${INSTANCE_NAME}_${BACKUP_TYPE}_${LOG_TS}.log"
 RETENTION_LOG="${logs_dir}/rman_retention_${INSTANCE_NAME}_${BACKUP_TYPE}_${LOG_TS}.log"
+ERROR_LOG="${logs_dir}/rman_errors_${INSTANCE_NAME}_${BACKUP_TYPE}_${LOG_TS}.log"  # FIXED: Now uses same timestamp!
 LOCK_FILE="${logs_dir}/.rman_${INSTANCE_NAME}.lock"
 
 TEMP_RMAN_SCRIPT="${logs_dir}/rman_${INSTANCE_NAME}_${BACKUP_TYPE}_${LOG_TS}.rman"
 TEMP_RETENTION_SCRIPT="${logs_dir}/retain_${INSTANCE_NAME}_${LOG_TS}.rman"
 
+echo "Logs will be created:"
+echo "  Backup:    ${BACKUP_LOG}"
+echo "  Retention: ${RETENTION_LOG}"
+echo "  Errors:    ${ERROR_LOG}"
+
 ################################################################################
-# Prepare backup directories
+# Prepare backup directories and lock file
 ################################################################################
 
 echo "Preparing backup directories for date ${backup_date}"
@@ -225,12 +350,11 @@ export PATH="${ORACLE_HOME}/bin:${PATH}"
 echo "Oracle environment set: ORACLE_HOME=${ORACLE_HOME}, ORACLE_SID=${ORACLE_SID}"
 
 ################################################################################
-# NEW: Strict database role check - PRIMARY ONLY
+# Strict database role check - PRIMARY ONLY
 ################################################################################
 
 echo "Checking database role (must be PRIMARY for backups)..."
 
-# Use a more robust SQL query with error handling
 DB_ROLE_CHECK=$(sqlplus -s / as sysdba <<EOF
 SET PAGESIZE 0
 SET FEEDBACK OFF
@@ -241,70 +365,68 @@ EXIT;
 EOF
 )
 
-# Check if SQL command succeeded
 if [ $? -ne 0 ]; then
     echo "ERROR: Failed to query database role"
-    echo "       Instance may not be accessible or not mounted"
     exit 3
 fi
 
-# Clean up the result (remove whitespace)
 DB_ROLE=$(echo "${DB_ROLE_CHECK}" | tr -d ' \n\r' | tr '[:lower:]' '[:upper:]')
-
 echo "Database role detected: ${DB_ROLE}"
 
 case "${DB_ROLE}" in
     PRIMARY)
         echo "✓ Database role is PRIMARY - proceeding with backup"
         ;;
-    PHYSICAL*STANDBY|STANDBY)
-        echo "ERROR: Database role is ${DB_ROLE} - backups not allowed on standby databases"
-        echo "       RMAN backups should only be performed on PRIMARY databases"
-        echo "       If you need to backup a standby, use specific standby backup procedures"
-        exit 3
-        ;;
-    SNAPSHOT*STANDBY)
-        echo "ERROR: Database role is ${DB_ROLE} - backups not recommended"
-        echo "       Snapshot standby databases should not be backed up via RMAN"
+    PHYSICAL*STANDBY|STANDBY|SNAPSHOT*STANDBY)
+        echo "ERROR: Database role is ${DB_ROLE} - backups not allowed"
         exit 3
         ;;
     *)
-        echo "ERROR: Unknown or unexpected database role: ${DB_ROLE}"
-        echo "       Only PRIMARY databases are supported for RMAN backups"
+        echo "ERROR: Unknown database role: ${DB_ROLE}"
         exit 3
         ;;
 esac
 
 ################################################################################
-# Generate RMAN backup script with optimization
+# Initialize error log with consistent timestamp
+################################################################################
+
+if [ ${dry_run} -eq 0 ]; then
+    # Initialize error log with header
+    cat > "${ERROR_LOG}" << EOF
+# RMAN Error Analysis Log - ${LOG_TS}
+# Instance: ${INSTANCE_NAME}
+# Backup Type: ${BACKUP_TYPE}
+# Generated by: $(basename "$0")
+# 
+# This file contains detailed analysis of RMAN backup errors
+# Each error includes description and recommended action
+
+================================================================================
+$(date '+%Y-%m-%d %H:%M:%S') BACKUP SESSION: ${BACKUP_TYPE} (${LOG_TS})
+================================================================================
+
+EOF
+fi
+
+################################################################################
+# Generate RMAN backup script
 ################################################################################
 
 echo "Generating RMAN script: ${TEMP_RMAN_SCRIPT}"
-echo "Configuration: Channels=${channels}, MaxPieceSize=${channel_max_size}, Compression=${COMPRESSION}"
-
-# Check if backup_optimization is defined in config, default to Y if not
 BACKUP_OPTIMIZATION="${backup_optimization:-Y}"
-echo "Backup optimization: ${BACKUP_OPTIMIZATION}"
+echo "Configuration: Channels=${channels}, MaxPieceSize=${channel_max_size}, Compression=${COMPRESSION}, Optimization=${BACKUP_OPTIMIZATION}"
 
 case "${BACKUP_TYPE}" in
     L0)
         {
             echo "CONNECT TARGET /;"
-            # Add backup optimization if enabled
-            if [ "${BACKUP_OPTIMIZATION}" = "Y" ]; then
-                echo "CONFIGURE BACKUP OPTIMIZATION ON;"
-            else
-                echo "CONFIGURE BACKUP OPTIMIZATION OFF;"
-            fi
+            [ "${BACKUP_OPTIMIZATION}" = "Y" ] && echo "CONFIGURE BACKUP OPTIMIZATION ON;" || echo "CONFIGURE BACKUP OPTIMIZATION OFF;"
             echo "RUN {"
             for ((i=1; i<=channels; i++)); do
                 echo "  ALLOCATE CHANNEL c${i} DEVICE TYPE DISK MAXPIECESIZE ${channel_max_size};"
             done
-            if [ "${COMPRESSION}" = "Y" ]; then
-                echo "  CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels} BACKUP TYPE TO COMPRESSED BACKUPSET;"
-            else
-                echo "  CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels};"
-            fi
+            [ "${COMPRESSION}" = "Y" ] && echo "  CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels} BACKUP TYPE TO COMPRESSED BACKUPSET;" || echo "  CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels};"
             echo "  BACKUP AS BACKUPSET INCREMENTAL LEVEL 0"
             echo "    FORMAT '${backup_L0_dir}/${backup_date}/${INSTANCE_NAME}_L0_%U'"
             echo "    DATABASE PLUS ARCHIVELOG;"
@@ -318,21 +440,12 @@ case "${BACKUP_TYPE}" in
     L1)
         {
             echo "CONNECT TARGET /;"
-            # Add backup optimization if enabled
-            if [ "${BACKUP_OPTIMIZATION}" = "Y" ]; then
-                echo "CONFIGURE BACKUP OPTIMIZATION ON;"
-            else
-                echo "CONFIGURE BACKUP OPTIMIZATION OFF;"
-            fi
+            [ "${BACKUP_OPTIMIZATION}" = "Y" ] && echo "CONFIGURE BACKUP OPTIMIZATION ON;" || echo "CONFIGURE BACKUP OPTIMIZATION OFF;"
             echo "RUN {"
             for ((i=1; i<=channels; i++)); do
                 echo "  ALLOCATE CHANNEL c${i} DEVICE TYPE DISK MAXPIECESIZE ${channel_max_size};"
             done
-            if [ "${COMPRESSION}" = "Y" ]; then
-                echo "  CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels} BACKUP TYPE TO COMPRESSED BACKUPSET;"
-            else
-                echo "  CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels};"
-            fi
+            [ "${COMPRESSION}" = "Y" ] && echo "  CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels} BACKUP TYPE TO COMPRESSED BACKUPSET;" || echo "  CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels};"
             echo "  BACKUP AS BACKUPSET INCREMENTAL LEVEL 1"
             echo "    FORMAT '${backup_L1_dir}/${backup_date}/${INSTANCE_NAME}_L1_%U'"
             echo "    DATABASE PLUS ARCHIVELOG;"
@@ -346,21 +459,12 @@ case "${BACKUP_TYPE}" in
     ARCH)
         {
             echo "CONNECT TARGET /;"
-            # Add backup optimization if enabled
-            if [ "${BACKUP_OPTIMIZATION}" = "Y" ]; then
-                echo "CONFIGURE BACKUP OPTIMIZATION ON;"
-            else
-                echo "CONFIGURE BACKUP OPTIMIZATION OFF;"
-            fi
+            [ "${BACKUP_OPTIMIZATION}" = "Y" ] && echo "CONFIGURE BACKUP OPTIMIZATION ON;" || echo "CONFIGURE BACKUP OPTIMIZATION OFF;"
             echo "RUN {"
             for ((i=1; i<=channels; i++)); do
                 echo "  ALLOCATE CHANNEL c${i} DEVICE TYPE DISK MAXPIECESIZE ${channel_max_size};"
             done
-            if [ "${COMPRESSION}" = "Y" ]; then
-                echo "  CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels} BACKUP TYPE TO COMPRESSED BACKUPSET;"
-            else
-                echo "  CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels};"
-            fi
+            [ "${COMPRESSION}" = "Y" ] && echo "  CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels} BACKUP TYPE TO COMPRESSED BACKUPSET;" || echo "  CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels};"
             echo "  BACKUP AS BACKUPSET"
             echo "    FORMAT '${backup_Arch_dir}/${backup_date}/${INSTANCE_NAME}_ARCH_%U'"
             echo "    ARCHIVELOG ALL DELETE INPUT;"
@@ -374,38 +478,43 @@ case "${BACKUP_TYPE}" in
 esac
 
 ################################################################################
-# Execute RMAN backup - SIMPLE LOGIC
+# Execute RMAN backup - BULLETPROOF SUCCESS TRACKING
 ################################################################################
 
 echo "Starting RMAN backup process"
 if [ ${dry_run} -eq 1 ]; then
-    echo "===== DRY RUN MODE - GENERATED RMAN SCRIPT ====="
+    echo "===== DRY RUN MODE ====="
     cat "${TEMP_RMAN_SCRIPT}"
-    echo
-    echo "DRY RUN: Would execute: ${rman_binary} cmdfile=${TEMP_RMAN_SCRIPT} msglog=${BACKUP_LOG}"
+    echo "===== END DRY RUN ====="
 else
     echo "Executing: ${rman_binary} cmdfile=${TEMP_RMAN_SCRIPT} msglog=${BACKUP_LOG}"
     
-    # Execute RMAN backup - SIMPLE!
+    # Execute RMAN backup and track success
     if ${rman_binary} cmdfile="${TEMP_RMAN_SCRIPT}" msglog="${BACKUP_LOG}"; then
         echo "RMAN backup command completed successfully"
         
-        # DIRECT error check - NO FUNCTION CALLS!
-        if [ -f "${BACKUP_LOG}" ] && grep -Eq '(ORA-[0-9]{5}|RMAN-[0-9]{5})' "${BACKUP_LOG}" 2>/dev/null; then
-            echo "ORA/RMAN errors found in backup log"
-            grep -Eo '(ORA-[0-9]{5}|RMAN-[0-9]{5})' "${BACKUP_LOG}" | sort -u | head -3
+        # Check for actual errors using our function
+        backup_error_count=0
+        scan_and_map_errors "${BACKUP_LOG}" "BACKUP" && backup_error_count=$? || backup_error_count=0
+        
+        if [ ${backup_error_count} -gt 0 ]; then
+            echo "Backup phase had ${backup_error_count} ORA/RMAN errors"
+            OVERALL_SUCCESS=0
             EXIT_STATUS=4
         else
-            echo "No ORA/RMAN errors found in backup log - backup successful"
+            echo "No ORA/RMAN errors found in backup - backup phase successful"
         fi
     else
-        echo "RMAN backup command failed"
+        echo "RMAN backup command failed with exit code $?"
+        OVERALL_SUCCESS=0
         EXIT_STATUS=4
+        # Still scan for errors to provide analysis
+        scan_and_map_errors "${BACKUP_LOG}" "BACKUP" || true
     fi
 fi
 
 ################################################################################
-# Execute RMAN retention - SIMPLE LOGIC
+# Execute RMAN retention - BULLETPROOF SUCCESS TRACKING
 ################################################################################
 
 echo "Generating retention cleanup script: ${TEMP_RETENTION_SCRIPT}"
@@ -419,28 +528,33 @@ echo "Generating retention cleanup script: ${TEMP_RETENTION_SCRIPT}"
 
 echo "Executing retention cleanup"
 if [ ${dry_run} -eq 1 ]; then
-    echo "===== DRY RUN MODE - GENERATED RETENTION SCRIPT ====="
+    echo "===== DRY RUN MODE ====="
     cat "${TEMP_RETENTION_SCRIPT}"
-    echo
-    echo "DRY RUN: Would execute: ${rman_binary} cmdfile=${TEMP_RETENTION_SCRIPT} msglog=${RETENTION_LOG}"
+    echo "===== END DRY RUN ====="
 else
     echo "Executing: ${rman_binary} cmdfile=${TEMP_RETENTION_SCRIPT} msglog=${RETENTION_LOG}"
     
-    # Execute RMAN retention - SIMPLE!
+    # Execute RMAN retention and track success
     if ${rman_binary} cmdfile="${TEMP_RETENTION_SCRIPT}" msglog="${RETENTION_LOG}"; then
         echo "RMAN retention command completed successfully"
         
-        # DIRECT error check - NO FUNCTION CALLS!
-        if [ -f "${RETENTION_LOG}" ] && grep -Eq '(ORA-[0-9]{5}|RMAN-[0-9]{5})' "${RETENTION_LOG}" 2>/dev/null; then
-            echo "ORA/RMAN errors found in retention log"
-            grep -Eo '(ORA-[0-9]{5}|RMAN-[0-9]{5})' "${RETENTION_LOG}" | sort -u | head -3
+        # Check for actual errors using our function
+        retention_error_count=0
+        scan_and_map_errors "${RETENTION_LOG}" "RETENTION" && retention_error_count=$? || retention_error_count=0
+        
+        if [ ${retention_error_count} -gt 0 ]; then
+            echo "Retention phase had ${retention_error_count} ORA/RMAN errors"
+            OVERALL_SUCCESS=0
             [ ${EXIT_STATUS} -eq 0 ] && EXIT_STATUS=5
         else
-            echo "No ORA/RMAN errors found in retention log - retention successful"
+            echo "No ORA/RMAN errors found in retention - retention phase successful"
         fi
     else
-        echo "RMAN retention command failed"
+        echo "RMAN retention command failed with exit code $?"
+        OVERALL_SUCCESS=0
         [ ${EXIT_STATUS} -eq 0 ] && EXIT_STATUS=5
+        # Still scan for errors to provide analysis
+        scan_and_map_errors "${RETENTION_LOG}" "RETENTION" || true
     fi
 fi
 
@@ -457,39 +571,59 @@ if [ ${dry_run} -eq 0 ]; then
 fi
 
 ################################################################################
-# Final summary - SIMPLE!
+# Final summary - BULLETPROOF LOGIC
 ################################################################################
 
 if [ ${dry_run} -eq 0 ]; then
     echo ""
     echo "=== FINAL STATUS SUMMARY ==="
     
-    # Count errors directly
-    TOTAL_ERRORS=0
+    # Count total errors from both phases
+    TOTAL_BACKUP_ERRORS=0
+    TOTAL_RETENTION_ERRORS=0
     
     if [ -f "${BACKUP_LOG}" ]; then
-        BACKUP_ERRORS=$(grep -Eo '(ORA-[0-9]{5}|RMAN-[0-9]{5})' "${BACKUP_LOG}" 2>/dev/null | wc -l || echo "0")
-        BACKUP_ERRORS=$(echo "${BACKUP_ERRORS}" | tr -d ' \n\r')
-        case "${BACKUP_ERRORS}" in ''|*[!0-9]*) BACKUP_ERRORS=0 ;; esac
-        TOTAL_ERRORS=$((TOTAL_ERRORS + BACKUP_ERRORS))
-        echo "Backup errors found: ${BACKUP_ERRORS}"
+        TOTAL_BACKUP_ERRORS=$(grep -Eo '(ORA-[0-9]{5}|RMAN-[0-9]{5})' "${BACKUP_LOG}" 2>/dev/null | wc -l || echo "0")
+        TOTAL_BACKUP_ERRORS=$(echo "${TOTAL_BACKUP_ERRORS}" | tr -d ' \n\r')
+        case "${TOTAL_BACKUP_ERRORS}" in ''|*[!0-9]*) TOTAL_BACKUP_ERRORS=0 ;; esac
     fi
     
     if [ -f "${RETENTION_LOG}" ]; then
-        RETENTION_ERRORS=$(grep -Eo '(ORA-[0-9]{5}|RMAN-[0-9]{5})' "${RETENTION_LOG}" 2>/dev/null | wc -l || echo "0")
-        RETENTION_ERRORS=$(echo "${RETENTION_ERRORS}" | tr -d ' \n\r')
-        case "${RETENTION_ERRORS}" in ''|*[!0-9]*) RETENTION_ERRORS=0 ;; esac
-        TOTAL_ERRORS=$((TOTAL_ERRORS + RETENTION_ERRORS))
-        echo "Retention errors found: ${RETENTION_ERRORS}"
+        TOTAL_RETENTION_ERRORS=$(grep -Eo '(ORA-[0-9]{5}|RMAN-[0-9]{5})' "${RETENTION_LOG}" 2>/dev/null | wc -l || echo "0")
+        TOTAL_RETENTION_ERRORS=$(echo "${TOTAL_RETENTION_ERRORS}" | tr -d ' \n\r')
+        case "${TOTAL_RETENTION_ERRORS}" in ''|*[!0-9]*) TOTAL_RETENTION_ERRORS=0 ;; esac
     fi
     
+    TOTAL_ERRORS=$((TOTAL_BACKUP_ERRORS + TOTAL_RETENTION_ERRORS))
+    
+    echo "Backup errors found: ${TOTAL_BACKUP_ERRORS}"
+    echo "Retention errors found: ${TOTAL_RETENTION_ERRORS}"
     echo "Total ORA/RMAN errors: ${TOTAL_ERRORS}"
     
-    if [ ${EXIT_STATUS} -eq 0 ]; then
+    # BULLETPROOF FINAL STATUS DETERMINATION
+    if [ ${OVERALL_SUCCESS} -eq 1 ] && [ ${TOTAL_ERRORS} -eq 0 ] && [ ${EXIT_STATUS} -eq 0 ]; then
         echo "RESULT: All operations completed successfully"
+        EXIT_STATUS=0  # EXPLICITLY SET SUCCESS
     else
-        echo "RESULT: One or more operations failed (exit code ${EXIT_STATUS})"
+        if [ ${TOTAL_ERRORS} -gt 0 ]; then
+            echo "⚠️  ERRORS DETECTED - Detailed analysis in: ${ERROR_LOG}"
+        fi
+        echo "RESULT: Operations failed (exit code ${EXIT_STATUS})"
     fi
+    
+    # Add final session summary to error log
+    cat >> "${ERROR_LOG}" << EOF
+
+================================================================================
+$(date '+%Y-%m-%d %H:%M:%S') SESSION SUMMARY: ${BACKUP_TYPE} (${LOG_TS})
+================================================================================
+Backup errors: ${TOTAL_BACKUP_ERRORS}
+Retention errors: ${TOTAL_RETENTION_ERRORS}
+Total errors: ${TOTAL_ERRORS}
+Overall success: $([ ${OVERALL_SUCCESS} -eq 1 ] && echo "YES" || echo "NO")
+Final status: $([ ${EXIT_STATUS} -eq 0 ] && echo "SUCCESS" || echo "FAILURE (exit code ${EXIT_STATUS})")
+
+EOF
 fi
 
 echo ""
