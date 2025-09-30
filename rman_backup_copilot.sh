@@ -1,818 +1,590 @@
 #!/bin/sh
+#===============================================================================
+# rman_backup.sh - Production-ready RMAN backup orchestrator (POSIX sh-compatible)
+#===============================================================================
+# Author: Experienced Oracle DBA & Shell Script Developer
+# License: MIT (or site standard)
 #
-# rman_backup.sh - POSIX-compliant RMAN backup orchestration script
+# SUMMARY / README
+# - Purpose: Safely run RMAN backups (Level 0, Level 1, and Archivelogs) with
+#   dynamic channel allocation, compression option, strict logging, error scanning
+#   with human-friendly error mapping, and post-backup retention cleanup.
 #
-# Description:
-#   Orchestrates Oracle RMAN backups (L0, L1, Arch) with validation, parallel channels,
-#   log/error parsing, retention cleanup, and safety controls (PID locks, idempotence).
-#   It is site-agnostic: all site-specific values belong in the configuration file.
+# - Deliverables in this generated package:
+#   1) rman_backup.sh (this file): Executable main script with no site-specific values.
+#   2) rman_backup.conf: Configuration file with all site-specific variables and
+#      customizable behavior (paths, channels, retention, compression defaults, etc.).
+#
+# - Installation:
+#   1) Save rman_backup.sh and rman_backup.conf together, e.g. in /opt/dbabackup.
+#   2) chmod 755 rman_backup.sh
+#   3) Edit rman_backup.conf to match your environment, especially BASE_DIR,
+#      LOG_DIR, ORATAB_PATH, CHANNELS, CHANNEL_MAXSIZE, and any retention settings.
+#   4) Ensure OS authentication works for RMAN/SQL*Plus (preferred), or configure
+#      Oracle Wallet. Do NOT hard-code passwords anywhere.
+#
+# - Scheduling (crontab example):
+#   # Level 0 every Sunday 01:00
+#   0 1 * * 0 /opt/dbabackup/rman_backup.sh -i ORCL -t L0 -c Y >> /opt/dbabackup/cron.log 2>&1
+#   # Level 1 Monday–Saturday 01:00
+#   0 1 * * 1-6 /opt/dbabackup/rman_backup.sh -i ORCL -t L1 >> /opt/dbabackup/cron.log 2>&1
+#   # Archivelogs hourly
+#   0 * * * * /opt/dbabackup/rman_backup.sh -i ORCL -t Arch >> /opt/dbabackup/cron.log 2>&1
+#
+# - Testing / Smoke tests:
+#   1) Dry-run: set DRY_RUN=Y in rman_backup.conf and run:
+#      ./rman_backup.sh -i ORCL -t L0 -c N
+#      Confirm the generated RMAN command file and log paths without executing RMAN.
+#   2) Simulate errors: create a fake log containing "ORA-19511" or "RMAN-03009"
+#      in $LOG_DIR and run scan_log_for_errors function by invoking a Level 1 run.
+#      Confirm the error mapping and remediation suggestions are written to .err file,
+#      and script exits non-zero.
+#
+# - Assumptions:
+#   * OS authentication enabled for SYSDBA (rman target /, sqlplus / as sysdba)
+#   * oratab contains entries in format: SID:ORACLE_HOME:...
+#   * Instance is started with PMON named "ora_pmon_<SID>"
+#   * Backup device is DISK; channels use MAXPIECESIZE per CHANNEL_MAXSIZE
+#   * Compression is backupset-based when enabled ("AS COMPRESSED BACKUPSET")
+#
+# - Exit codes:
+#   0 = success
+#   1 = bad args / usage error
+#   2 = instance not found or not running
+#   3 = database role not PRIMARY
+#   4 = backup error detected in log
+#   5 = retention cleanup error
+#
+# - Error mapping:
+#   The script looks for RMAN/ORA error codes in the backup log, then maps codes
+#   to human-readable messages using an error_map file defined in rman_backup.conf.
+#   Example mapping lines (pipe-delimited):
+#     RMAN-03009|failure to allocate channel|Check disk space/permissions and RMAN channel allocation
+#     ORA-19511|error occurred during archiving|Check archiver process and destination
+#   Add more mappings by appending to the error map file. If a code is not found,
+#   the script logs a generic advisory: "see Oracle RMAN/DBA docs".
+#   See section "Extending error_map" near the end of this file for more guidance.
+#
+# - Security note:
+#   Do not store passwords in files or variables. Use OS authentication or Oracle Wallet.
 #
 # Usage:
-#   rman_backup.sh -i <INSTANCE_NAME> -t <BACKUP_TYPE> [-c <CONFIG_FILE>] [--dry-run] [-h]
-#
-#   BACKUP_TYPE must be one of: L0, L1, Arch
-#
-# Examples:
-#   rman_backup.sh -i ORCL -t L0 -c /etc/rman_backup/rman_backup.conf
-#   rman_backup.sh -i PROD1 -t Arch --dry-run
-#
-# Configuration Notes:
-#   Place all site-specific settings in rman_backup.conf (shell KEY=VALUE).
-#   See accompanying rman_backup.conf.example for all keys and documentation.
-#
-# Sample crontab entry:
-#   # Nightly Level 1 backup at 01:30
-#   30 1 * * * /opt/dba/bin/rman_backup.sh -i PROD1 -t L1 -c /etc/rman_backup/rman_backup.conf >> /var/log/rman_backup/activity.log 2>&1
-#
-# Exit codes:
-#   0   success
-#   1   usage/config error
-#   2   instance not running
-#   3   database role not PRIMARY
-#   10  RMAN errors detected
-#   20  retention errors
-#   100 unexpected error
-#
-# README:
-#   - This script uses OS authentication to connect target "/ as sysdba".
-#     If your environment requires a wallet or username/password, set
-#     ADDITIONAL_RMAN_OPTIONS in the config (e.g., "target sys/<pass>@<tns>").
-#   - Dry-run mode performs all validations and prints the RMAN command blocks,
-#     but does not invoke RMAN and does not delete anything.
-#   - Ensure LOG_DIR is readable/writable by the user running this script.
-#
-# Example RMAN command block generated (L0, compressed, 3 channels):
-#   run {
-#     allocate channel c1 device type disk maxpiecesize 100G;
-#     allocate channel c2 device type disk maxpiecesize 100G;
-#     allocate channel c3 device type disk maxpiecesize 100G;
-#     backup as compressed backupset incremental level 0
-#       format '/backup/rman/L0/30-Sep-2025/%d_%t_L0_%s'
-#       database;
-#     backup current controlfile format '/backup/rman/L0/30-Sep-2025/%d_%t_CTL_%s';
-#     backup spfile format '/backup/rman/L0/30-Sep-2025/%d_%t_SPFILE_%s';
-#   }
-#   run {
-#     allocate channel c1 device type disk maxpiecesize 100G;
-#     allocate channel c2 device type disk maxpiecesize 100G;
-#     allocate channel c3 device type disk maxpiecesize 100G;
-#     backup as compressed backupset
-#       format '/backup/rman/Arch/30-Sep-2025/%d_%t_ARCH_%s'
-#       archivelog all;
-#   }
-#
-# Portability / Safety:
-#   - POSIX /bin/sh compatible; avoids bash-only features.
-#   - No hard-coded credentials; uses OS auth by default.
-#   - Creates date-based directories with restrictive permissions.
-#   - PID lock avoids concurrent runs per instance/type.
-#
+#   ./rman_backup.sh -i INSTANCE_NAME -t {L0|L1|Arch} [-c {Y|N}] [--help]
+#   Example: ./rman_backup.sh -i ORCL -t L0 -c Y
+#   Expected logs:
+#     $LOG_DIR/ORCL_L0_<timestamp>.log        (main backup log)
+#     $ERROR_LOG_DIR/ORCL_L0_<timestamp>.err  (error scan results)
+#     $LOG_DIR/ORCL_retention_<timestamp>.log (retention actions)
+#     $ERROR_LOG_DIR/ORCL_retention_<timestamp>.err (retention errors)
+#===============================================================================
 
-# Shell strictness: avoid set -e to keep custom error handling and proper exit codes.
-# Use nounset and safe IFS.
-set -u
-IFS='
-     '
+# Ensure POSIX sh behavior; avoid bashisms
 
-# Globals for exit codes
-EXIT_OK=0
-EXIT_USAGE=1
-EXIT_NOT_RUNNING=2
-EXIT_NOT_PRIMARY=3
-EXIT_RMAN_ERR=10
-EXIT_RETENTION_ERR=20
-EXIT_UNEXPECTED=100
-
-# Defaults (overridden by config)
-CONFIG_FILE_DEFAULT_ETC="/etc/rman_backup/rman_backup.conf"
-CONFIG_FILE_DEFAULT_LOCAL="./rman_backup.conf"
-
-# State
+# Global variables (runtime only; all site-specific values come from rman_backup.conf)
+SCRIPT_NAME="$(basename "$0")"
+TS="$(date +%Y%m%d_%H%M%S)"
 INSTANCE_NAME=""
 BACKUP_TYPE=""
-CONFIG_FILE=""
-DRY_RUN="N"
+COMPRESSION="N"
 
-# Timestamps
-NOW_EPOCH="$(date +%s)"
-NOW_STR="$(date +%Y%m%d_%H%M%S)"
-TODAY_DIR="$(date +%d-%b-%Y)"
-
-# Logging files (initialized after config load)
-LOG_DIR=""
+# Runtime paths (set after loading config)
 MAIN_LOG=""
-ERR_LOG=""
-RETENTION_LOG=""
-RETENTION_ERR_LOG=""
-ACTIVITY_LOG=""   # Master activity log; configurable in config via LOG_DIR
-PID_FILE=""
+ERROR_LOG=""
+RET_LOG=""
+RET_ERR_LOG=""
+RMAN_CMD_FILE=""
+SQL_CMD_FILE=""
+RMAN_SCRIPT_FILE=""
+RMAN_BIN=""
+ORACLE_HOME=""
+ORACLE_SID=""
+PATH_BAKUP=""
 
-# Print usage
+# Exit codes as constants
+EXIT_SUCCESS=0
+EXIT_BAD_ARGS=1
+EXIT_INSTANCE_NOT_RUNNING=2
+EXIT_ROLE_NOT_PRIMARY=3
+EXIT_BACKUP_ERROR=4
+EXIT_RETENTION_ERROR=5
+
+#-------------------------------------------------------------------------------
+# fail: centralized failure handler with logging and exit
+#-------------------------------------------------------------------------------
+fail() {
+  code="$1"; msg="$2"
+  # Prefer writing to error log if initialized; else stderr
+  if [ -n "$ERROR_LOG" ]; then
+    echo "[$(date +%F' '%T)] ERROR ($code): $msg" >> "$ERROR_LOG"
+  else
+    echo "[$(date +%F' '%T)] ERROR ($code): $msg" >&2
+  fi
+  exit "$code"
+}
+
+#-------------------------------------------------------------------------------
+# usage: print help/README summary
+#-------------------------------------------------------------------------------
 usage() {
-  cat <<EOF
-Usage: $(basename "$0") -i <INSTANCE_NAME> -t <BACKUP_TYPE> [-c <CONFIG_FILE>] [--dry-run] [-h]
-  -i   Oracle instance name (ORACLE_SID)
-  -t   Backup type: L0 | L1 | Arch
-  -c   Configuration file path (optional). Defaults to:
-       - ${CONFIG_FILE_DEFAULT_ETC} if present; else
-       - ${CONFIG_FILE_DEFAULT_LOCAL} if present
-  --dry-run  Perform validation and print RMAN commands without running them
-  -h   Show this help
+  cat <<USAGE
+$SCRIPT_NAME - RMAN backup orchestrator (POSIX sh)
+Usage:
+  $SCRIPT_NAME -i INSTANCE_NAME -t {L0|L1|Arch} [-c {Y|N}] [--help]
+
+Mandatory:
+  -i INSTANCE_NAME     Database instance/SID to backup
+  -t BACKUP_TYPE       L0 (Level 0 full), L1 (incremental), Arch (archivelogs only)
+
+Optional:
+  -c COMPRESSION       Y to enable compressed backupset; N disables (default N)
+
+Config:
+  Edit rman_backup.conf for environment-specific values (paths, channels, retention, etc.)
 
 Examples:
-  $(basename "$0") -i ORCL -t L0 -c /etc/rman_backup/rman_backup.conf
-  $(basename "$0") -i PROD1 -t Arch --dry-run
-EOF
+  $SCRIPT_NAME -i ORCL -t L0 -c Y
+  $SCRIPT_NAME -i ORCL -t L1
+  $SCRIPT_NAME -i ORCL -t Arch
+
+Exit codes:
+  0=success, 1=bad args, 2=instance not running, 3=role not primary,
+  4=backup error, 5=retention error
+
+Crontab examples:
+  0 1 * * 0 /path/$SCRIPT_NAME -i ORCL -t L0 -c Y
+  0 1 * * 1-6 /path/$SCRIPT_NAME -i ORCL -t L1
+  0 * * * *   /path/$SCRIPT_NAME -i ORCL -t Arch
+
+USAGE
 }
 
-# Logging helpers
-ts() { date "+%Y-%m-%d %H:%M:%S"; }
-
-log_activity() {
-  # Message with optional exit code (second arg)
-  # Always append to activity.log
-  _msg="$1"
-  _code="${2:-}"
-  if [ -n "${ACTIVITY_LOG}" ]; then
-    if [ -n "${_code}" ]; then
-      printf "%s | %s | code=%s\n" "$(ts)" "${_msg}" "${_code}" >> "${ACTIVITY_LOG}"
-    else
-      printf "%s | %s\n" "$(ts)" "${_msg}" >> "${ACTIVITY_LOG}"
-    fi
+#-------------------------------------------------------------------------------
+# parse_args: parse CLI arguments
+#-------------------------------------------------------------------------------
+parse_args() {
+  if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    usage
+    exit "$EXIT_SUCCESS"
   fi
-}
 
-info() {
-  _msg="$1"
-  printf "%s INFO: %s\n" "$(ts)" "${_msg}"
-  if [ -n "${MAIN_LOG}" ]; then
-    printf "%s INFO: %s\n" "$(ts)" "${_msg}" >> "${MAIN_LOG}"
+  # POSIX getopts handling of -i -t -c
+  while getopts "i:t:c:" opt; do
+    case "$opt" in
+      i) INSTANCE_NAME="$OPTARG" ;;
+      t) BACKUP_TYPE="$OPTARG" ;;
+      c) COMPRESSION="$OPTARG" ;;
+      *) usage; exit "$EXIT_BAD_ARGS" ;;
+    esac
+  done
+
+  # Validate required arguments
+  if [ -z "$INSTANCE_NAME" ] || [ -z "$BACKUP_TYPE" ]; then
+    usage
+    exit "$EXIT_BAD_ARGS"
   fi
-  log_activity "${_msg}"
-}
 
-warn() {
-  _msg="$1"
-  printf "%s WARN: %s\n" "$(ts)" "${_msg}"
-  if [ -n "${MAIN_LOG}" ]; then
-    printf "%s WARN: %s\n" "$(ts)" "${_msg}" >> "${MAIN_LOG}"
-  fi
-  log_activity "WARN: ${_msg}"
-}
+  # Normalize BACKUP_TYPE case-insensitively to canonical form
+  case "$(echo "$BACKUP_TYPE" | tr '[:lower:]' '[:upper:]')" in
+    L0) BACKUP_TYPE="L0" ;;
+    L1) BACKUP_TYPE="L1" ;;
+    ARCH) BACKUP_TYPE="Arch" ;;
+    *) echo "Invalid BACKUP_TYPE: $BACKUP_TYPE"; usage; exit "$EXIT_BAD_ARGS" ;;
+  esac
 
-err() {
-  _msg="$1"
-  printf "%s ERROR: %s\n" "$(ts)" "${_msg}" >&2
-  if [ -n "${ERR_LOG}" ]; then
-    printf "%s ERROR: %s\n" "$(ts)" "${_msg}" >> "${ERR_LOG}"
-  fi
-  log_activity "ERROR: ${_msg}"
-}
-
-# Clean up PID file on exit
-cleanup() {
-  if [ -n "${PID_FILE}" ] && [ -f "${PID_FILE}" ]; then
-    rm -f "${PID_FILE}"
-  fi
-}
-trap cleanup EXIT
-
-# Error mapping for common RMAN/ORA codes
-map_error_code() {
-  _code="$1"
-  case "${_code}" in
-    RMAN-00571) echo "RMAN fatal error stack encountered";;
-    RMAN-03009) echo "Failure of RMAN command";;
-    RMAN-03002) echo "Failure of backup/command";;
-    RMAN-06059) echo "Log not found / object not found";;
-    RMAN-06025) echo "Alias not found / catalog issue";;
-    RMAN-06004) echo "Error with block change tracking / channel";;
-    ORA-19511)  echo "Media management layer reported an error";;
-    ORA-19566)  echo "Exceeded backup/restore parameter or size";;
-    ORA-19502)  echo "Write error on file during backup";;
-    ORA-19504)  echo "Failed to create file (permissions/space)";;
-    ORA-27037)  echo "Unable to obtain file status (OS I/O error)";;
-    ORA-19809)  echo "Limit exceeded for recovery files";;
-    ORA-19815)  echo "Warning: db_recovery_file_dest_size is too small";;
-    ORA-19804)  echo "Cannot reclaim space enough from FRA";;
-    ORA-01110)  echo "Data file error";;
-    ORA-01157)  echo "Cannot identify/lock data file";;
-    ORA-00600)  echo "Internal error";;
-    ORA-07445)  echo "Exception raised (OS signal)";;
-    *)          echo "Unmapped error code";;
+  # Normalize COMPRESSION to Y or N
+  case "$(echo "${COMPRESSION:-N}" | tr '[:lower:]' '[:upper:]')" in
+    Y) COMPRESSION="Y" ;;
+    N) COMPRESSION="N" ;;
+    *) echo "Invalid COMPRESSION: $COMPRESSION (use Y or N)"; usage; exit "$EXIT_BAD_ARGS" ;;
   esac
 }
 
-# Validate MAXSIZE unit (e.g., 100G, 500M, 1024K, 1T)
-validate_maxsize() {
-  _val="$1"
-  # Must be digits followed by K/M/G/T (uppercase or lowercase)
-  case "${_val}" in
-    *[!0-9KkMmGgTt]*|"")
-      return 1
-      ;;
-    [0-9]*[KkMmGgTt])
-      return 0
+#-------------------------------------------------------------------------------
+# load_config: source rman_backup.conf and validate key variables
+#-------------------------------------------------------------------------------
+load_config() {
+  CONF_DIR="$(dirname "$0")"
+  CONF_FILE="$CONF_DIR/rman_backup.conf"
+
+  if [ ! -r "$CONF_FILE" ]; then
+    echo "Configuration file not readable: $CONF_FILE"
+    exit "$EXIT_BAD_ARGS"
+  fi
+
+  # shellcheck disable=SC1090
+  . "$CONF_FILE"
+
+  # Validate critical config
+  [ -z "$BASE_DIR" ] && fail "$EXIT_BAD_ARGS" "BASE_DIR not set in config"
+  [ -z "$LOG_DIR" ] && fail "$EXIT_BAD_ARGS" "LOG_DIR not set in config"
+  [ -z "$ERROR_LOG_DIR" ] && fail "$EXIT_BAD_ARGS" "ERROR_LOG_DIR not set in config"
+  [ -z "$TMP_DIR" ] && fail "$EXIT_BAD_ARGS" "TMP_DIR not set in config"
+  [ -z "$ORATAB_PATH" ] && fail "$EXIT_BAD_ARGS" "ORATAB_PATH not set in config"
+  [ -z "$CHANNELS" ] && fail "$EXIT_BAD_ARGS" "CHANNELS not set in config"
+  [ -z "$CHANNEL_MAXSIZE" ] && fail "$EXIT_BAD_ARGS" "CHANNEL_MAXSIZE not set in config"
+  [ -z "$RETENTION_DAYS" ] && fail "$EXIT_BAD_ARGS" "RETENTION_DAYS not set in config"
+
+  # Validate CHANNELS integer >=1
+  case "$CHANNELS" in
+    ''|*[!0-9]*)
+      fail "$EXIT_BAD_ARGS" "CHANNELS must be integer >=1"
       ;;
     *)
-      return 1
-      ;;
-  esac
-}
-
-# Parse /etc/oratab to fetch ORACLE_HOME for the given instance
-# Format: SID:ORACLE_HOME:Y|N (comments start with #)
-get_oracle_home_from_oratab() {
-  _sid="$1"
-  _oratab="$2"
-  if [ ! -r "${_oratab}" ]; then
-    err "ORATAB file not readable: ${_oratab}"
-    return 1
-  fi
-  # Use awk to find line with SID
-  _home="$(awk -F: -v sid="${_sid}" '
-    $0 !~ /^#/ && $1 == sid { print $2; exit }
-  ' "${_oratab}")"
-  if [ -z "${_home}" ]; then
-    err "Instance '${_sid}' not found in ${_oratab}"
-    return 1
-  fi
-  printf "%s" "${_home}"
-}
-
-# Check if instance is running via PMON or a minimal SQL*Plus connection
-check_instance_running() {
-  _sid="$1"
-  _home="$2"
-  # PMON check
-  if ps -ef 2>/dev/null | grep "ora_pmon_${_sid}" | grep -v grep >/dev/null 2>&1; then
-    return 0
-  fi
-  # Fallback: try to connect and query instance name
-  if [ -x "${_home}/bin/sqlplus" ]; then
-    ORACLE_SID="${_sid}"
-    ORACLE_HOME="${_home}"
-    export ORACLE_SID ORACLE_HOME
-    # Attempt minimal connection
-    echo "set pagesize 0 feedback off verify off heading off echo off
-select name from v\\$database;
-exit" | "${ORACLE_HOME}/bin/sqlplus" -s / as sysdba >/dev/null 2>&1
-    if [ "$?" -eq 0 ]; then
-      return 0
-    fi
-  fi
-  return 1
-}
-
-# Query database role (PRIMARY required)
-get_database_role() {
-  _sid="$1"
-  _home="$2"
-  ORACLE_SID="${_sid}"
-  ORACLE_HOME="${_home}"
-  export ORACLE_SID ORACLE_HOME
-  if [ ! -x "${ORACLE_HOME}/bin/sqlplus" ]; then
-    err "sqlplus not found at ${ORACLE_HOME}/bin/sqlplus"
-    return 1
-  fi
-  _role="$(
-    echo "set pagesize 0 feedback off verify off heading off echo off
-select database_role from v\\$database;
-exit" | "${ORACLE_HOME}/bin/sqlplus" -s / as sysdba 2>/dev/null
-  )"
-  # Trim spaces/newlines
-  _role_clean="$(printf "%s" "${_role}" | tr -d ' \r' | tr -d '\n')"
-  printf "%s" "${_role_clean}"
-}
-
-# Build channel allocation block
-build_channel_block() {
-  _channels="$1"
-  _maxsize="$2"
-  _blk=""
-  _i=1
-  while [ "${_i}" -le "${_channels}" ]; do
-    _blk="${_blk}allocate channel c${_i} device type disk maxpiecesize ${_maxsize};
-"
-    _i=$(( _i + 1 ))
-  done
-  printf "%s" "${_blk}"
-}
-
-# Ensure directory exists with safe permissions
-ensure_dir() {
-  _dir="$1"
-  if [ ! -d "${_dir}" ]; then
-    umask 027
-    if ! mkdir -p "${_dir}"; then
-      err "Failed to create directory: ${_dir}"
-      return 1
-    fi
-  fi
-  return 0
-}
-
-# Determine default config file if -c not provided
-resolve_config_file() {
-  if [ -n "${CONFIG_FILE}" ]; then
-    printf "%s" "${CONFIG_FILE}"
-    return 0
-  fi
-  if [ -r "${CONFIG_FILE_DEFAULT_ETC}" ]; then
-    printf "%s" "${CONFIG_FILE_DEFAULT_ETC}"
-    return 0
-  fi
-  if [ -r "${CONFIG_FILE_DEFAULT_LOCAL}" ]; then
-    printf "%s" "${CONFIG_FILE_DEFAULT_LOCAL}"
-    return 0
-  fi
-  # Fallback to etc path even if not readable, will error later
-  printf "%s" "${CONFIG_FILE_DEFAULT_ETC}"
-}
-
-# Parse args (supports --dry-run)
-parse_args() {
-  # First pass: handle --dry-run specifically
-  # Save original args
-  ARGS="$*"
-  for a in "$@"; do
-    case "$a" in
-      --dry-run) DRY_RUN="Y";;
-    esac
-  done
-
-  # POSIX getopts for short options
-  # shellcheck disable=SC2039
-  while getopts "i:t:c:h" opt; do
-    case "$opt" in
-      i) INSTANCE_NAME="$OPTARG";;
-      t) BACKUP_TYPE="$OPTARG";;
-      c) CONFIG_FILE="$OPTARG";;
-      h) usage; exit "${EXIT_USAGE}";;
-      *) usage; exit "${EXIT_USAGE}";;
-    esac
-  done
-}
-
-# Validate backup type
-validate_backup_type() {
-  case "${BACKUP_TYPE}" in
-    L0|L1|Arch) return 0;;
-    *) err "Invalid BACKUP_TYPE: ${BACKUP_TYPE}. Must be one of L0, L1, Arch."; return 1;;
-  esac
-}
-
-# Build RMAN format string, substituting placeholders where applicable
-# Supported placeholders:
-#   %d = DB_NAME (handled by RMAN)
-#   %t = timestamp (RMAN)
-#   %s = backup set sequence (RMAN)
-#   %i = instance name (we expand to INSTANCE_NAME via RMAN 'tag' or path; here embed literally)
-# Note: RMAN understands %d, %t, %s. '%i' is not standard; we inject INSTANCE_NAME into directory path.
-#       If you want instance in filename, include it explicitly (e.g., '${INSTANCE_NAME}_%d_%t_L0_%s').
-inject_instance_in_format() {
-  _fmt="$1"
-  # Replace literal %i with INSTANCE_NAME
-  printf "%s" "$(printf "%s" "${_fmt}" | sed "s/%i/${INSTANCE_NAME}/g")"
-}
-
-# Build backup directories and paths
-setup_directories() {
-  # Base and typed dirs derived from config
-  # Create date subdirectories
-  L0_DIR_DAY="${BACKUP_L0_DIR}/${TODAY_DIR}"
-  L1_DIR_DAY="${BACKUP_L1_DIR}/${TODAY_DIR}"
-  ARCH_DIR_DAY="${BACKUP_ARCH_DIR}/${TODAY_DIR}"
-  # Logs dir
-  ensure_dir "${LOG_DIR}" || return 1
-  ensure_dir "${BACKUP_L0_DIR}" || return 1
-  ensure_dir "${BACKUP_L1_DIR}" || return 1
-  ensure_dir "${BACKUP_ARCH_DIR}" || return 1
-  ensure_dir "${L0_DIR_DAY}" || return 1
-  ensure_dir "${L1_DIR_DAY}" || return 1
-  ensure_dir "${ARCH_DIR_DAY}" || return 1
-  return 0
-}
-
-# Build RMAN RUN blocks for different backup types
-build_rman_block_database() {
-  # L0 or L1
-  _level="$1"   # 0 or 1
-  _compressed="$2"  # Y or N
-  _channels="$3"
-  _maxsize="$4"
-  _fmt_db="$5"   # format for datafiles
-  _fmt_ctl="$6"  # format for controlfile
-  _fmt_spf="$7"  # format for spfile
-  _blk_ch="$(build_channel_block "${_channels}" "${_maxsize}")"
-  _comp_clause=""
-  if [ "${_compressed}" = "Y" ]; then
-    _comp_clause="as compressed backupset"
-  else
-    _comp_clause=""
-  fi
-  cat <<EOF
-run {
-${_blk_ch}backup ${_comp_clause} incremental level ${_level}
-  format '${_fmt_db}'
-  database;
-backup current controlfile format '${_fmt_ctl}';
-EOF
-  if [ "${SPFILE_BACKUP:-Y}" = "Y" ]; then
-    printf "backup spfile format '%s';\n" "${_fmt_spf}"
-  fi
-  printf "}\n"
-}
-
-build_rman_block_archivelog() {
-  _compressed="$1"  # Y or N
-  _channels="$2"
-  _maxsize="$3"
-  _fmt_arch="$4"
-  _blk_ch="$(build_channel_block "${_channels}" "${_maxsize}")"
-  _comp_clause=""
-  if [ "${_compressed}" = "Y" ]; then
-    _comp_clause="as compressed backupset"
-  else
-    _comp_clause=""
-  fi
-  cat <<EOF
-run {
-${_blk_ch}backup ${_comp_clause}
-  format '${_fmt_arch}'
-  archivelog all;
-}
-EOF
-}
-
-# Build RMAN retention block
-build_rman_block_retention() {
-  _days="$1"
-  cat <<EOF
-report obsolete recovery window of ${_days} days;
-delete noprompt obsolete recovery window of ${_days} days;
-EOF
-}
-
-# Run RMAN with generated block, capture logs
-run_rman() {
-  _block_file="$1"
-  _log_file="$2"
-  _err_file="$3"
-  # Additional RMAN options are freeform (e.g., catalog, target, msglog, etc.)
-  # We will not echo secrets into logs.
-  _opts="${ADDITIONAL_RMAN_OPTIONS:-}"
-  # Enforce msglog to our log file
-  # Some RMAN versions support 'log' redirection; we will use shell redirection instead.
-  "${RMAN_BINARY}" ${_opts} target / <<RMAN_EOF >"${_log_file}" 2>&1
-$(cat "${_block_file}")
-RMAN_EOF
-  _rc="$?"
-  if [ "${_rc}" -ne 0 ]; then
-    err "RMAN exited with code ${_rc}"
-  fi
-  return "${_rc}"
-}
-
-# Scan RMAN log for errors and produce summarized err log
-scan_rman_errors() {
-  _log_file="$1"
-  _err_file="$2"
-  : > "${_err_file}"
-  if [ ! -r "${_log_file}" ]; then
-    err "RMAN log not found for error scan: ${_log_file}"
-    return 1
-  fi
-
-  # Extract lines with error tokens
-  grep -E "RMAN-|ORA-|FATAL|ERROR|ALERT" "${_log_file}" 2>/dev/null > "${_err_file}.raw" || true
-
-  if [ ! -s "${_err_file}.raw" ]; then
-    # No error lines
-    rm -f "${_err_file}.raw"
-    return 0
-  fi
-
-  printf "%s\n" "Summarized error report (counts, first occurrence, mapped descriptions):" >> "${_err_file}"
-  # Aggregate by code (first token like RMAN-xxxxx or ORA-xxxxx), count occurrences, and print first line
-  # POSIX awk used
-  awk '
-  BEGIN { }
-  {
-    # Find code token in the line
-    match($0, /(RMAN-[0-9]{5}|ORA-[0-9]{5}|FATAL|ERROR|ALERT)/, m)
-    if (m[1] != "") {
-      code=m[1]
-      count[code]++
-      if (!(code in first)) { first[code]=$0 }
-    }
-  }
-  END {
-    for (c in count) {
-      printf("Code: %s | Count: %d\nFirst: %s\n", c, count[c], first[c])
-    }
-  }' "${_err_file}.raw" >> "${_err_file}"
-
-  # Append mapped descriptions
-  printf "\nMapped descriptions:\n" >> "${_err_file}"
-  while IFS= read -r line; do
-    case "${line}" in
-      Code:\ RMAN-*|Code:\ ORA-*|Code:\ FATAL|Code:\ ERROR|Code:\ ALERT)
-        code="$(printf "%s" "${line}" | awk '{print $2}')"
-        desc="$(map_error_code "${code}")"
-        printf "%s -> %s\n" "${code}" "${desc}" >> "${_err_file}"
-        ;;
-    esac
-  done < "${_err_file}"
-
-  rm -f "${_err_file}.raw"
-  return 0
-}
-
-# Retention: report and delete obsolete
-perform_retention() {
-  _days="$1"
-  _log="$2"
-  _err="$3"
-  # Build retention block file
-  _blk="$(mktemp "/tmp/rman_retention_${INSTANCE_NAME}_${BACKUP_TYPE}_XXXXXX")" || return 1
-  build_rman_block_retention "${_days}" > "${_blk}"
-
-  if [ "${DRY_RUN}" = "Y" ]; then
-    info "Dry-run: retention block (report and delete):"
-    printf "%s\n" "----- RMAN RETENTION BLOCK BEGIN -----"
-    cat "${_blk}"
-    printf "%s\n" "----- RMAN RETENTION BLOCK END -----"
-    rm -f "${_blk}"
-    return 0
-  fi
-
-  # Run RMAN report obsolete
-  # We will split into two commands: first report, then delete (only if report success)
-  # Report
-  "${RMAN_BINARY}" ${ADDITIONAL_RMAN_OPTIONS:-} target / <<RMAN_EOF >"${_log}".tmp 2>&1
-report obsolete recovery window of ${_days} days;
-RMAN_EOF
-  _rc_report="$?"
-  cat "${_log}".tmp >> "${_log}"
-  rm -f "${_log}".tmp
-
-  if [ "${_rc_report}" -ne 0 ]; then
-    printf "%s\n" "Retention report failed with code ${_rc_report}" >> "${_err}"
-    err "Retention report failed (code ${_rc_report}). Skipping delete."
-    return "${EXIT_RETENTION_ERR}"
-  fi
-
-  # Delete
-  "${RMAN_BINARY}" ${ADDITIONAL_RMAN_OPTIONS:-} target / <<RMAN_EOF >>"${_log}" 2>>"${_err}"
-delete noprompt obsolete recovery window of ${_days} days;
-RMAN_EOF
-  _rc_delete="$?"
-  if [ "${_rc_delete}" -ne 0 ]; then
-    printf "%s\n" "Retention delete failed with code ${_rc_delete}" >> "${_err}"
-    err "Retention delete failed (code ${_rc_delete})."
-    return "${EXIT_RETENTION_ERR}"
-  fi
-
-  return 0
-}
-
-# Notification stub (integrate with your monitoring/email system here)
-notify_failure_stub() {
-  _subject="$1"
-  _body="$2"
-  # Example (commented):
-  # /usr/bin/mail -s "${_subject}" dba-team@example.com <<MAIL
-  # ${_body}
-  # MAIL
-  :
-}
-
-# Main
-main() {
-  parse_args "$@"
-
-  if [ -z "${INSTANCE_NAME}" ] || [ -z "${BACKUP_TYPE}" ]; then
-    usage
-    exit "${EXIT_USAGE}"
-  fi
-
-  if ! validate_backup_type; then
-    usage
-    exit "${EXIT_USAGE}"
-  fi
-
-  CONFIG_FILE="$(resolve_config_file)"
-  if [ ! -r "${CONFIG_FILE}" ]; then
-    printf "Config file not found or unreadable: %s\n" "${CONFIG_FILE}" >&2
-    exit "${EXIT_USAGE}"
-  fi
-
-  # shellcheck source=/dev/null
-  . "${CONFIG_FILE}"
-
-  # Defaults for optional keys
-  COMPRESS="${COMPRESS:-N}"
-  SPFILE_BACKUP="${SPFILE_BACKUP:-Y}"
-  ADDITIONAL_RMAN_OPTIONS="${ADDITIONAL_RMAN_OPTIONS:-}"
-
-  # Validate mandatory config keys
-  REQUIRED_KEYS="BASE_DIR BACKUP_L0_DIR BACKUP_L1_DIR BACKUP_ARCH_DIR BACKUP_FORMAT_L0 BACKUP_FORMAT_L1 BACKUP_FORMAT_ARCH CHANNELS CHANNEL_MAXSIZE RETENTION_DAYS ORATAB LOG_DIR RMAN_BINARY"
-  for k in ${REQUIRED_KEYS}; do
-    # shellcheck disable=SC3028
-    eval "v=\${${k}:-}"
-    if [ -z "${v}" ]; then
-      printf "Missing required config key: %s\n" "${k}" >&2
-      exit "${EXIT_USAGE}"
-    fi
-  done
-
-  # Validate channel sizes
-  if ! validate_maxsize "${CHANNEL_MAXSIZE}"; then
-    printf "Invalid CHANNEL_MAXSIZE: %s (expected e.g., 100G, 500M, 1024K, 1T)\n" "${CHANNEL_MAXSIZE}" >&2
-    exit "${EXIT_USAGE}"
-  fi
-
-  # Cap sensibly (example: prevent > 10T)
-  case "${CHANNEL_MAXSIZE}" in
-    [0-9]*[Tt])
-      # Extract number
-      num=$(printf "%s" "${CHANNEL_MAXSIZE}" | sed 's/[Tt]$//')
-      # If > 10, cap
-      # POSIX sh: numeric compare
-      # If non-integer, reject
-      case "${num}" in
-        *[!0-9]*|"") printf "Invalid CHANNEL_MAXSIZE number\n" >&2; exit "${EXIT_USAGE}";;
-      esac
-      if [ "${num}" -gt 10 ]; then
-        warn "CHANNEL_MAXSIZE ${CHANNEL_MAXSIZE} too large; capping to 10T"
-        CHANNEL_MAXSIZE="10T"
+      if [ "$CHANNELS" -lt 1 ]; then
+        fail "$EXIT_BAD_ARGS" "CHANNELS must be >=1"
       fi
       ;;
   esac
 
-  # Logging paths
-  ensure_dir "${LOG_DIR}" || exit "${EXIT_USAGE}"
-  MAIN_LOG="${LOG_DIR}/${INSTANCE_NAME}_${BACKUP_TYPE}_${NOW_STR}.log"
-  ERR_LOG="${LOG_DIR}/${INSTANCE_NAME}_${BACKUP_TYPE}_${NOW_STR}.err.log"
-  RETENTION_LOG="${LOG_DIR}/retention_${NOW_STR}.log"
-  RETENTION_ERR_LOG="${LOG_DIR}/retention_${NOW_STR}.err.log"
-  ACTIVITY_LOG="${LOG_DIR}/activity.log"
-  PID_FILE="${LOG_DIR}/rman_backup_${INSTANCE_NAME}_${BACKUP_TYPE}.pid"
+  # Set RMAN_BIN to override or default to ORACLE_HOME later
+  RMAN_BIN="${RMAN_BINARY:-}"
 
-  log_activity "Start: instance=${INSTANCE_NAME}, type=${BACKUP_TYPE}, dryrun=${DRY_RUN}"
+  # Ensure directories exist
+  for d in "$BASE_DIR" "$LOG_DIR" "$ERROR_LOG_DIR" "$TMP_DIR" "$BACKUP_L0_DIR" "$BACKUP_L1_DIR" "$BACKUP_ARCH_DIR"; do
+    if [ ! -d "$d" ]; then
+      mkdir -p "$d" || fail "$EXIT_BAD_ARGS" "Failed to create directory: $d"
+      chmod 750 "$d" 2>/dev/null || true
+    fi
+  done
 
-  # PID lock
-  if [ -f "${PID_FILE}" ]; then
-    old_pid="$(cat "${PID_FILE}" 2>/dev/null || echo "")"
-    if [ -n "${old_pid}" ] && kill -0 "${old_pid}" 2>/dev/null; then
-      err "Another backup process is running (PID ${old_pid})."
-      log_activity "Concurrent run detected, exiting." "${EXIT_USAGE}"
-      exit "${EXIT_USAGE}"
-    else
-      warn "Stale PID file found; removing."
-      rm -f "${PID_FILE}"
+  # Prepare error_map file if embedded data provided and file missing
+  if [ -n "$ERROR_MAP_FILE" ]; then
+    if [ ! -e "$ERROR_MAP_FILE" ] && [ -n "$ERROR_MAP_DATA" ]; then
+      echo "$ERROR_MAP_DATA" > "$ERROR_MAP_FILE" || fail "$EXIT_BAD_ARGS" "Cannot write ERROR_MAP_FILE: $ERROR_MAP_FILE"
     fi
   fi
-  printf "%s\n" "$$" > "${PID_FILE}"
 
-  # Instance / environment validation
-  ORACLE_HOME="$(get_oracle_home_from_oratab "${INSTANCE_NAME}" "${ORATAB}")" || {
-    log_activity "Instance not in oratab: ${INSTANCE_NAME}" "${EXIT_USAGE}"
-    exit "${EXIT_USAGE}"
-  }
+  # Prepare default log file names
+  MAIN_LOG="$LOG_DIR/${INSTANCE_NAME}_${BACKUP_TYPE}_${TS}.log"
+  ERROR_LOG="$ERROR_LOG_DIR/${INSTANCE_NAME}_${BACKUP_TYPE}_${TS}.err"
+  RET_LOG="$LOG_DIR/${INSTANCE_NAME}_retention_${TS}.log"
+  RET_ERR_LOG="$ERROR_LOG_DIR/${INSTANCE_NAME}_retention_${TS}.err"
+  RMAN_CMD_FILE="$TMP_DIR/${INSTANCE_NAME}_${BACKUP_TYPE}_${TS}.rman.cmd"
+  RMAN_SCRIPT_FILE="$TMP_DIR/${INSTANCE_NAME}_${BACKUP_TYPE}_${TS}.rman"
+  SQL_CMD_FILE="$TMP_DIR/${INSTANCE_NAME}_${TS}.sql"
+}
 
-  if ! check_instance_running "${INSTANCE_NAME}" "${ORACLE_HOME}"; then
-    err "Instance ${INSTANCE_NAME} is not running."
-    log_activity "Instance not running: ${INSTANCE_NAME}" "${EXIT_NOT_RUNNING}"
-    exit "${EXIT_NOT_RUNNING}"
+#-------------------------------------------------------------------------------
+# set_environment: derive ORACLE_HOME/ORACLE_SID from oratab and export PATH
+#-------------------------------------------------------------------------------
+set_environment() {
+  ORACLE_SID="$INSTANCE_NAME"
+
+  # Find oratab line for instance: SID:ORACLE_HOME:...
+  # Exclude commented lines starting with '#'
+  ORATAB_LINE="$(grep -E "^[[:space:]]*$ORACLE_SID:" "$ORATAB_PATH" | grep -v '^[[:space:]]*#')"
+  if [ -z "$ORATAB_LINE" ]; then
+    fail "$EXIT_INSTANCE_NOT_RUNNING" "Instance $ORACLE_SID not found in $ORATAB_PATH"
   fi
 
-  ROLE="$(get_database_role "${INSTANCE_NAME}" "${ORACLE_HOME}")"
-  if [ -z "${ROLE}" ]; then
-    err "Could not determine database role."
-    log_activity "Role check failed" "${EXIT_UNEXPECTED}"
-    exit "${EXIT_UNEXPECTED}"
-  fi
-  if [ "${ROLE}" != "PRIMARY" ]; then
-    err "Database role is '${ROLE}', not PRIMARY. Aborting backup."
-    log_activity "Not PRIMARY: ${ROLE}" "${EXIT_NOT_PRIMARY}"
-    exit "${EXIT_NOT_PRIMARY}"
+  ORACLE_HOME="$(echo "$ORATAB_LINE" | awk -F: '{print $2}')"
+  if [ -z "$ORACLE_HOME" ] || [ ! -d "$ORACLE_HOME" ]; then
+    fail "$EXIT_BAD_ARGS" "ORACLE_HOME invalid for $ORACLE_SID (check $ORATAB_PATH)"
   fi
 
-  # Directories setup
-  setup_directories || {
-    log_activity "Directory setup failed" "${EXIT_USAGE}"
-    exit "${EXIT_USAGE}"
-  }
+  export ORACLE_HOME ORACLE_SID
+  export PATH="$ORACLE_HOME/bin:$PATH"
 
-  # Build format strings with instance injection
-  FMT_L0="$(inject_instance_in_format "${BACKUP_FORMAT_L0}")"
-  FMT_L1="$(inject_instance_in_format "${BACKUP_FORMAT_L1}")"
-  FMT_ARCH="$(inject_instance_in_format "${BACKUP_FORMAT_ARCH}")"
+  # Set RMAN_BIN default if not overridden
+  if [ -z "$RMAN_BIN" ]; then
+    RMAN_BIN="$ORACLE_HOME/bin/rman"
+  fi
+  [ -x "$RMAN_BIN" ] || fail "$EXIT_BAD_ARGS" "RMAN binary not executable: $RMAN_BIN"
+}
 
-  # Resolve full format paths for date-based directories
-  FMT_PATH_L0="${L0_DIR_DAY}/${FMT_L0}"
-  FMT_PATH_L1="${L1_DIR_DAY}/${FMT_L1}"
-  FMT_PATH_CTL="${L0_DIR_DAY}/%d_%t_CTL_%s"
-  FMT_PATH_SPF="${L0_DIR_DAY}/%d_%t_SPFILE_%s"
-  FMT_PATH_ARCH="${ARCH_DIR_DAY}/${FMT_ARCH}"
+#-------------------------------------------------------------------------------
+# check_instance: verify instance running and role PRIMARY
+#-------------------------------------------------------------------------------
+check_instance() {
+  # Check PMON process to confirm running
+  PMON_NAME="ora_pmon_${ORACLE_SID}"
+  if ! ps -e -o comm | grep -q "^$PMON_NAME$"; then
+    fail "$EXIT_INSTANCE_NOT_RUNNING" "Instance $ORACLE_SID not running (PMON $PMON_NAME not found)"
+  fi
 
-  # Build RMAN block according to type
-  BLOCK_FILE="$(mktemp "/tmp/rman_${INSTANCE_NAME}_${BACKUP_TYPE}_XXXXXX")" || {
-    err "Failed to create temp RMAN block file"
-    exit "${EXIT_UNEXPECTED}"
-  }
+  # Check database role via SQL*Plus
+  cat > "$SQL_CMD_FILE" <<EOS
+set heading off feedback off verify off pages 0 echo off
+select database_role from v\\$database;
+exit
+EOS
 
-  case "${BACKUP_TYPE}" in
+  ROLE="$(sqlplus -s / as sysdba @"$SQL_CMD_FILE" 2>/dev/null | tr -d '[:space:]')"
+  if [ -z "$ROLE" ]; then
+    fail "$EXIT_BAD_ARGS" "Unable to determine database role via SQL*Plus"
+  fi
+  if [ "$ROLE" != "PRIMARY" ]; then
+    fail "$EXIT_ROLE_NOT_PRIMARY" "Database role is $ROLE, not PRIMARY; backups disabled"
+  fi
+}
+
+#-------------------------------------------------------------------------------
+# build_rman_script: construct RMAN script dynamically based on type/channels
+#-------------------------------------------------------------------------------
+build_rman_script() {
+  # Compute date-based subdir names (e.g., dd-mon-yyyy)
+  DATE_TAG="$(date +%d-%b-%Y)"
+  COMPRESS_CLAUSE=""
+  if [ "$COMPRESSION" = "Y" ]; then
+    COMPRESS_CLAUSE=" as compressed backupset"
+  fi
+
+  # Select base backup dir and format string by type
+  case "$BACKUP_TYPE" in
     L0)
-      build_rman_block_database "0" "${COMPRESS}" "${CHANNELS}" "${CHANNEL_MAXSIZE}" "${FMT_PATH_L0}" "${FMT_PATH_CTL}" "${FMT_PATH_SPF}" > "${BLOCK_FILE}"
+      BASE_TARGET_DIR="$BACKUP_L0_DIR/$DATE_TAG"
+      BACKUP_FORMAT="$BACKUP_FORMAT_L0"
       ;;
     L1)
-      # For L1, controlfile/SPFILE also go to L1 dir for consistency with requirement "same day's directory"
-      FMT_PATH_CTL="${L1_DIR_DAY}/%d_%t_CTL_%s"
-      FMT_PATH_SPF="${L1_DIR_DAY}/%d_%t_SPFILE_%s"
-      build_rman_block_database "1" "${COMPRESS}" "${CHANNELS}" "${CHANNEL_MAXSIZE}" "${FMT_PATH_L1}" "${FMT_PATH_CTL}" "${FMT_PATH_SPF}" > "${BLOCK_FILE}"
+      BASE_TARGET_DIR="$BACKUP_L1_DIR/$DATE_TAG"
+      BACKUP_FORMAT="$BACKUP_FORMAT_L1"
       ;;
     Arch)
-      build_rman_block_archivelog "${COMPRESS}" "${CHANNELS}" "${CHANNEL_MAXSIZE}" "${FMT_PATH_ARCH}" > "${BLOCK_FILE}"
+      BASE_TARGET_DIR="$BACKUP_ARCH_DIR/$DATE_TAG"
+      BACKUP_FORMAT="$BACKUP_FORMAT_ARCH"
       ;;
   esac
 
-  # For L0/L1, we also need archivelog backup to ARCH dir after database backup
-  ARCH_BLOCK_FILE=""
-  if [ "${BACKUP_TYPE}" = "L0" ] || [ "${BACKUP_TYPE}" = "L1" ]; then
-    ARCH_BLOCK_FILE="$(mktemp "/tmp/rman_arch_${INSTANCE_NAME}_${BACKUP_TYPE}_XXXXXX")" || {
-      err "Failed to create temp RMAN arch block file"
-      exit "${EXIT_UNEXPECTED}"
-    }
-    build_rman_block_archivelog "${COMPRESS}" "${CHANNELS}" "${CHANNEL_MAXSIZE}" "${FMT_PATH_ARCH}" > "${ARCH_BLOCK_FILE}"
+  # Create target directories (including subdirs for control/spfile)
+  mkdir -p "$BASE_TARGET_DIR" || fail "$EXIT_BAD_ARGS" "Failed to create base target dir: $BASE_TARGET_DIR"
+  chmod 750 "$BASE_TARGET_DIR" 2>/dev/null || true
+  CONTROL_DIR="$BASE_TARGET_DIR/control"
+  SPFILE_DIR="$BASE_TARGET_DIR/spfile"
+  ARCH_DIR="$BASE_TARGET_DIR/archivelogs"
+  mkdir -p "$CONTROL_DIR" "$SPFILE_DIR" "$ARCH_DIR" 2>/dev/null || true
+
+  # Build channel allocation block
+  ALLOCATE_CHANNELS=""
+  i=1
+  while [ "$i" -le "$CHANNELS" ]; do
+    ALLOCATE_CHANNELS="$ALLOCATE_CHANNELS
+    allocate channel ch$i device type disk maxpiecesize $CHANNEL_MAXSIZE;"
+    i=$((i+1))
+  done
+
+  # Build channel release block
+  RELEASE_CHANNELS=""
+  i=1
+  while [ "$i" -le "$CHANNELS" ]; do
+    RELEASE_CHANNELS="$RELEASE_CHANNELS
+    release channel ch$i;"
+    i=$((i+1))
+  done
+
+  # Build backup commands based on type
+  case "$BACKUP_TYPE" in
+    L0)
+      # Level 0 full incremental backup + spfile/controlfile + archivelogs not backed up
+      cat > "$RMAN_SCRIPT_FILE" <<ERMAN
+run {
+$ALLOCATE_CHANNELS
+    backup$COMPRESS_CLAUSE incremental level 0 database
+      format '$BASE_TARGET_DIR/${BACKUP_FORMAT}_db_%U.bkp';
+    backup$COMPRESS_CLAUSE spfile
+      format '$SPFILE_DIR/${BACKUP_FORMAT}_spfile_%U.bkp';
+    backup$COMPRESS_CLAUSE current controlfile
+      format '$CONTROL_DIR/${BACKUP_FORMAT}_control_%U.bkp';
+    backup$COMPRESS_CLAUSE archivelog all not backed up
+      format '$ARCH_DIR/${BACKUP_FORMAT}_arch_%U.bkp';
+$RELEASE_CHANNELS
+}
+ERMAN
+      ;;
+    L1)
+      # Level 1 incremental backup + spfile/controlfile + archivelogs not backed up
+      cat > "$RMAN_SCRIPT_FILE" <<ERMAN
+run {
+$ALLOCATE_CHANNELS
+    backup$COMPRESS_CLAUSE incremental level 1 database
+      format '$BASE_TARGET_DIR/${BACKUP_FORMAT}_db_%U.bkp';
+    backup$COMPRESS_CLAUSE spfile
+      format '$SPFILE_DIR/${BACKUP_FORMAT}_spfile_%U.bkp';
+    backup$COMPRESS_CLAUSE current controlfile
+      format '$CONTROL_DIR/${BACKUP_FORMAT}_control_%U.bkp';
+    backup$COMPRESS_CLAUSE archivelog all not backed up
+      format '$ARCH_DIR/${BACKUP_FORMAT}_arch_%U.bkp';
+$RELEASE_CHANNELS
+}
+ERMAN
+      ;;
+    Arch)
+      # Archivelogs only; ensure NOT BACKED UP selection
+      cat > "$RMAN_SCRIPT_FILE" <<ERMAN
+run {
+$ALLOCATE_CHANNELS
+    backup$COMPRESS_CLAUSE archivelog all not backed up
+      format '$BASE_TARGET_DIR/${BACKUP_FORMAT}_arch_%U.bkp';
+$RELEASE_CHANNELS
+}
+ERMAN
+      ;;
+  esac
+
+  # Build configure retention and cleanup command file (used post-success)
+  # Strategy controlled via RETENTION_STRATEGY in config: WINDOW or REPORT_DELETE
+  if [ "$RETENTION_STRATEGY" = "WINDOW" ]; then
+    cat > "$RMAN_CMD_FILE" <<ERMAN2
+configure retention policy to recovery window of $RETENTION_DAYS days;
+report obsolete;
+delete obsolete;
+ERMAN2
+  else
+    cat > "$RMAN_CMD_FILE" <<ERMAN2
+report obsolete recovery window of $RETENTION_DAYS days;
+delete obsolete recovery window of $RETENTION_DAYS days;
+ERMAN2
   fi
-
-  # Dry-run: print blocks and exit success
-  if [ "${DRY_RUN}" = "Y" ]; then
-    info "Dry-run mode: showing RMAN blocks (no execution)."
-    printf "%s\n" "----- RMAN BLOCK BEGIN (${BACKUP_TYPE}) -----"
-    cat "${BLOCK_FILE}"
-    printf "%s\n" "----- RMAN BLOCK END -----"
-    if [ -n "${ARCH_BLOCK_FILE}" ] && [ -f "${ARCH_BLOCK_FILE}" ]; then
-      printf "%s\n" "----- RMAN ARCHIVELOG BLOCK BEGIN -----"
-      cat "${ARCH_BLOCK_FILE}"
-      printf "%s\n" "----- RMAN ARCHIVELOG BLOCK END -----"
-    fi
-    rm -f "${BLOCK_FILE}" "${ARCH_BLOCK_FILE:-}"
-    log_activity "Dry-run completed" "${EXIT_OK}"
-    exit "${EXIT_OK}"
-  fi
-
-  # Run RMAN main block
-  info "Running RMAN for ${BACKUP_TYPE}..."
-  run_rman "${BLOCK_FILE}" "${MAIN_LOG}" "${ERR_LOG}"
-  RC_MAIN="$?"
-  rm -f "${BLOCK_FILE}"
-
-  # Scan for RMAN errors
-  scan_rman_errors "${MAIN_LOG}" "${ERR_LOG}"
-  if [ -s "${ERR_LOG}" ]; then
-    warn "Errors detected in RMAN log; see ${ERR_LOG}"
-    log_activity "RMAN errors detected" "${EXIT_RMAN_ERR}"
-    # Optional notification stub
-    notify_failure_stub "RMAN ${INSTANCE_NAME} ${BACKUP_TYPE} errors" "See ${ERR_LOG}"
-    exit "${EXIT_RMAN_ERR}"
-  fi
-
-  # If L0/L1, run archivelog backup
-  if [ -n "${ARCH_BLOCK_FILE}" ] && [ -f "${ARCH_BLOCK_FILE}" ]; then
-    info "Running RMAN archivelog backup..."
-    run_rman "${ARCH_BLOCK_FILE}" "${MAIN_LOG}" "${ERR_LOG}"
-    RC_ARCH="$?"
-    rm -f "${ARCH_BLOCK_FILE}"
-    scan_rman_errors "${MAIN_LOG}" "${ERR_LOG}"
-    if [ -s "${ERR_LOG}" ]; then
-      warn "Errors detected during archivelog backup; see ${ERR_LOG}"
-      log_activity "RMAN errors detected (archivelog)" "${EXIT_RMAN_ERR}"
-      notify_failure_stub "RMAN ${INSTANCE_NAME} archivelog errors" "See ${ERR_LOG}"
-      exit "${EXIT_RMAN_ERR}"
-    fi
-  fi
-
-  # Retention only after successful backups
-  info "Performing retention cleanup (report then delete) with window ${RETENTION_DAYS} days..."
-  perform_retention "${RETENTION_DAYS}" "${RETENTION_LOG}" "${RETENTION_ERR_LOG}"
-  RC_RET="$?"
-  if [ "${RC_RET}" -ne 0 ]; then
-    warn "Retention step encountered errors. See ${RETENTION_LOG} and ${RETENTION_ERR_LOG}"
-    # Append retention errors to main error log
-    if [ -r "${RETENTION_ERR_LOG}" ]; then
-      cat "${RETENTION_ERR_LOG}" >> "${ERR_LOG}"
-    fi
-    log_activity "Retention errors" "${EXIT_RETENTION_ERR}"
-    exit "${EXIT_RETENTION_ERR}"
-  fi
-
-  info "Backup completed successfully for ${INSTANCE_NAME} (${BACKUP_TYPE}). Logs: ${MAIN_LOG}"
-  log_activity "Completed successfully" "${EXIT_OK}"
-  exit "${EXIT_OK}"
 }
 
-main "$@"
+#-------------------------------------------------------------------------------
+# run_rman: execute RMAN with the built script; handle dry-run and logging
+#-------------------------------------------------------------------------------
+run_rman() {
+  echo "[$(date +%F' '%T)] Starting RMAN $BACKUP_TYPE backup for $INSTANCE_NAME (compression=$COMPRESSION)" >> "$MAIN_LOG"
+  echo "RMAN script: $RMAN_SCRIPT_FILE" >> "$MAIN_LOG"
+
+  if [ "$DRY_RUN" = "Y" ]; then
+    echo "[DRY_RUN] RMAN would execute the following:" >> "$MAIN_LOG"
+    sed 's/^/  /' "$RMAN_SCRIPT_FILE" >> "$MAIN_LOG"
+    return 0
+  fi
+
+  # Run RMAN target / using OS authentication; write stdout/stderr to MAIN_LOG
+  "$RMAN_BIN" target / cmdfile "$RMAN_SCRIPT_FILE" log "$MAIN_LOG" 2>&1
+  RMAN_EXIT=$?
+
+  echo "[$(date +%F' '%T)] RMAN exit code: $RMAN_EXIT" >> "$MAIN_LOG"
+
+  # RMAN non-zero exit can indicate issues; scanner will confirm
+  return "$RMAN_EXIT"
+}
+
+#-------------------------------------------------------------------------------
+# scan_log_for_errors: parse MAIN_LOG for RMAN-/ORA- errors and map/remediate
+#-------------------------------------------------------------------------------
+scan_log_for_errors() {
+  ERR_FOUND=0
+
+  # Extract lines with common error patterns
+  # Patterns: RMAN-XXXX, ORA-XXXXX, "ERROR at line"
+  grep -E "RMAN-[0-9]{5}|ORA-[0-9]{5}|ERROR at line" "$MAIN_LOG" > "$TMP_DIR/${INSTANCE_NAME}_${TS}.errors" 2>/dev/null
+
+  if [ -s "$TMP_DIR/${INSTANCE_NAME}_${TS}.errors" ]; then
+    ERR_FOUND=1
+    {
+      echo "Backup errors detected in $MAIN_LOG:"
+      echo "Timestamp: $(date +%F' '%T)"
+      echo "Instance: $INSTANCE_NAME  Type: $BACKUP_TYPE"
+      echo "---- Raw error lines ----"
+      cat "$TMP_DIR/${INSTANCE_NAME}_${TS}.errors"
+      echo "---- Mapped messages ----"
+    } >> "$ERROR_LOG"
+
+    # Map each code to friendly message
+    if [ -n "$ERROR_MAP_FILE" ] && [ -r "$ERROR_MAP_FILE" ]; then
+      while IFS= read -r line; do
+        CODE="$(echo "$line" | grep -Eo '(RMAN|ORA)-[0-9]+' | head -n1)"
+        if [ -n "$CODE" ]; then
+          MAP_LINE="$(grep -E "^${CODE}\|" "$ERROR_MAP_FILE" | head -n1)"
+          if [ -n "$MAP_LINE" ]; then
+            SHORT="$(echo "$MAP_LINE" | awk -F'|' '{print $2}')"
+            REMEDY="$(echo "$MAP_LINE" | awk -F'|' '{print $3}')"
+            echo "$CODE: $SHORT | Remedy: $REMEDY" >> "$ERROR_LOG"
+          else
+            echo "$CODE: Unmapped error. Please see Oracle RMAN/DBA docs." >> "$ERROR_LOG"
+          fi
+        else
+          echo "Uncoded error line: $line" >> "$ERROR_LOG"
+        fi
+      done < "$TMP_DIR/${INSTANCE_NAME}_${TS}.errors"
+    else
+      echo "No ERROR_MAP_FILE available/readable; consider configuring ERROR_MAP_FILE in rman_backup.conf" >> "$ERROR_LOG"
+    fi
+
+    echo "---- End of error scan ----" >> "$ERROR_LOG"
+  fi
+
+  return "$ERR_FOUND"
+}
+
+#-------------------------------------------------------------------------------
+# retention_cleanup: run RMAN retention per configured strategy
+#-------------------------------------------------------------------------------
+retention_cleanup() {
+  if [ "$DRY_RUN" = "Y" ]; then
+    echo "[DRY_RUN] Retention would run with strategy=$RETENTION_STRATEGY, days=$RETENTION_DAYS" >> "$RET_LOG"
+    sed 's/^/  /' "$RMAN_CMD_FILE" >> "$RET_LOG"
+    return 0
+  fi
+
+  "$RMAN_BIN" target / cmdfile "$RMAN_CMD_FILE" log "$RET_LOG" 2>&1
+  RC=$?
+  if [ "$RC" -ne 0 ]; then
+    echo "Retention RMAN exit code: $RC" >> "$RET_ERR_LOG"
+    # Scan retention log for errors as well
+    grep -E "RMAN-[0-9]{5}|ORA-[0-9]{5}|ERROR at line" "$RET_LOG" >> "$RET_ERR_LOG" 2>/dev/null
+    fail "$EXIT_RETENTION_ERROR" "Retention cleanup failed (see $RET_LOG and $RET_ERR_LOG)"
+  fi
+  return 0
+}
+
+#-------------------------------------------------------------------------------
+# rotate_logs: optional log rotation/cleanup based on LOG_RETENTION_DAYS
+#-------------------------------------------------------------------------------
+rotate_logs() {
+  if [ -n "$LOG_RETENTION_DAYS" ]; then
+    find "$LOG_DIR" -type f -name "${INSTANCE_NAME}_*.log" -mtime +"$LOG_RETENTION_DAYS" -exec rm -f {} \; 2>/dev/null
+    find "$ERROR_LOG_DIR" -type f -name "${INSTANCE_NAME}_*.err" -mtime +"$LOG_RETENTION_DAYS" -exec rm -f {} \; 2>/dev/null
+  fi
+}
+
+#-------------------------------------------------------------------------------
+# Main
+#-------------------------------------------------------------------------------
+parse_args "$@"
+load_config
+set_environment
+check_instance
+build_rman_script
+
+# Run RMAN backup
+run_rman
+RMAN_RUN_RC=$?
+
+# Immediately scan for errors
+scan_log_for_errors
+SCAN_RC=$?
+
+if [ "$SCAN_RC" -ne 0 ] || [ "$RMAN_RUN_RC" -ne 0 ]; then
+  # If any error detected, exit non-zero after logging
+  fail "$EXIT_BACKUP_ERROR" "Backup errors detected; see $MAIN_LOG and $ERROR_LOG"
+fi
+
+# If backup successful, perform retention cleanup
+retention_cleanup || exit "$EXIT_RETENTION_ERROR"
+
+# Optionally rotate old logs
+rotate_logs
+
+echo "[$(date +%F' '%T)] Backup completed successfully for $INSTANCE_NAME ($BACKUP_TYPE). Logs: $MAIN_LOG" >> "$MAIN_LOG"
+exit "$EXIT_SUCCESS"
+
+#===============================================================================
+# Extending error_map (DBA guidance)
+# - Edit the file configured via ERROR_MAP_FILE in rman_backup.conf.
+# - Format: CODE|SHORT_MESSAGE|REMEDY
+#   Examples:
+#     RMAN-03009|failure to allocate channel|Check disk space/permissions and RMAN channel allocation
+#     RMAN-06059|expected archived log not found|Verify archivelog destination and crosscheck/delete expired
+#     RMAN-06025|no backup of archived log found|Ensure archivelogs exist; validate log shipping
+#     RMAN-20011|target database incarnation not found|Review catalog/resync; check resetlogs/incarnation
+#     ORA-19511|error occurred during archiving|Check archiver process (ARCn) and destination free space
+#     ORA-19809|limit exceeded for recovery files|Increase FRA size or delete obsolete; check db_recovery_file_dest_size
+#     ORA-27102|out of memory|Check OS memory availability and SGA/PGA settings
+#     ORA-00257|archiver error. connect internal only|Free up FRA or archive dest; resume archiver
+#     ORA-00001|unique constraint violated|Investigate catalog operations if applicable
+# - Authoritative docs:
+#   * Oracle Database Backup and Recovery User’s Guide (RMAN)
+#   * Oracle Database Error Messages and Reference
+#   * My Oracle Support (MOS) notes for specific RMAN/ORA codes
+#===============================================================================
