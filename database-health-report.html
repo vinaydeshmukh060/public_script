@@ -1,0 +1,3747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oracle Database Health Report</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.8em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+        
+        .header .subtitle {
+            font-size: 1.2em;
+            opacity: 0.9;
+            margin-bottom: 20px;
+        }
+        
+        .data-controls {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        
+        .data-source-options {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        
+        .data-source-btn {
+            padding: 12px 24px;
+            border: 2px solid rgba(255,255,255,0.3);
+            background: transparent;
+            color: white;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+        
+        .data-source-btn:hover {
+            background: rgba(255,255,255,0.2);
+            border-color: rgba(255,255,255,0.6);
+        }
+        
+        .data-source-btn.active {
+            background: white;
+            color: #2a5298;
+            border-color: white;
+        }
+        
+        .file-input-group {
+            display: none;
+            background: rgba(255,255,255,0.95);
+            padding: 30px;
+            border-radius: 15px;
+            margin: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .file-input-group.active {
+            display: block;
+        }
+        
+        .data-info {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+            border-left: 5px solid #2a5298;
+        }
+        
+        .data-info h4 {
+            color: #2a5298;
+            margin-bottom: 10px;
+            font-size: 1.2em;
+        }
+        
+        .file-input-row {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border: 2px dashed #ddd;
+            transition: all 0.3s ease;
+        }
+        
+        .file-input-row:hover {
+            border-color: #2a5298;
+            background: #f0f7ff;
+        }
+        
+        .file-input-row label {
+            font-weight: 600;
+            color: #2a5298;
+            min-width: 180px;
+        }
+        
+        .file-input-row input[type="file"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: white;
+        }
+        
+        .load-data-btn, .demo-data-btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 25px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 16px;
+        }
+        
+        .load-data-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .load-data-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .demo-data-btn {
+            background: #f8f9fa;
+            color: #666;
+            border: 2px solid #ddd;
+        }
+        
+        .demo-data-btn:hover {
+            background: #e9ecef;
+            border-color: #adb5bd;
+        }
+        
+        .status-indicator {
+            display: none;
+            padding: 15px;
+            margin: 20px;
+            border-radius: 10px;
+            font-weight: 500;
+            text-align: center;
+        }
+        
+        .status-indicator.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status-indicator.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status-indicator.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .loading-spinner {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #2a5298;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .main-content {
+            padding: 30px;
+        }
+        
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .summary-card {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 25px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .summary-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        }
+        
+        .summary-card.clickable {
+            border: 2px solid transparent;
+        }
+        
+        .summary-card.clickable:hover {
+            border-color: #2a5298;
+        }
+        
+        .summary-card h3 {
+            color: #2a5298;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+        
+        .summary-card .value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .summary-card .unit {
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        .summary-card .trend {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 24px;
+        }
+        
+        .trend.up { color: #28a745; }
+        .trend.down { color: #dc3545; }
+        .trend.stable { color: #ffc107; }
+        
+        .health-score {
+            position: absolute;
+            top: 10px;
+            left: 15px;
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-weight: 600;
+        }
+
+        .health-score.excellent { background: #d4edda; color: #155724; }
+        .health-score.good { background: #d1ecf1; color: #0c5460; }
+        .health-score.warning { background: #fff3cd; color: #856404; }
+        .health-score.critical { background: #f8d7da; color: #721c24; }
+        
+        .tab-navigation {
+            display: flex;
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 5px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .tab-btn {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            background: transparent;
+            color: #666;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            min-width: 120px;
+        }
+        
+        .tab-btn.active {
+            background: #2a5298;
+            color: white;
+        }
+        
+        .tab-content {
+            display: none;
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .overview-layout {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .chart-container {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .chart-container h3 {
+            color: #2a5298;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+            text-align: center;
+            border-bottom: 2px solid #e9ecef;
+            padding-bottom: 10px;
+        }
+        
+        .chart-wrapper {
+            position: relative;
+            height: 400px;
+        }
+        
+        .interactive-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+        }
+        
+        .interactive-table th {
+            background: #2a5298;
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .interactive-table th:hover {
+            background: #1e3c72;
+        }
+        
+        .interactive-table th::after {
+            content: '↕';
+            position: absolute;
+            right: 10px;
+            opacity: 0.5;
+        }
+        
+        .interactive-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .interactive-table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .search-filter {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .search-input {
+            flex: 1;
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            min-width: 200px;
+        }
+        
+        .filter-select {
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: white;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+        }
+        
+        .modal-content {
+            background: white;
+            margin: 3% auto;
+            padding: 30px;
+            border-radius: 15px;
+            width: 95%;
+            max-width: 1000px;
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #eee;
+        }
+        
+        .modal-title {
+            color: #2a5298;
+            font-size: 1.5em;
+            font-weight: 600;
+        }
+        
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+            padding: 5px 10px;
+        }
+        
+        .close-btn:hover {
+            color: #333;
+        }
+        
+        .metric-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.8em;
+            font-weight: 600;
+            margin: 2px 4px;
+        }
+        
+        .metric-badge.critical {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .metric-badge.warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .metric-badge.info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .metric-badge.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .row {
+            display: flex;
+            gap: 30px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        
+        .col-6 {
+            flex: 1;
+            min-width: 300px;
+        }
+        
+        .col-4 {
+            flex: 1;
+            min-width: 250px;
+        }
+        
+        .info-section {
+            display: none;
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        
+        .info-section h3 {
+            color: #2a5298;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+            border-bottom: 2px solid #e9ecef;
+            padding-bottom: 10px;
+        }
+        
+        /* POLISHED: Horizontal Database Information Layout */
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  padding: 25px;
+  border-radius: 15px;
+  border: 2px solid #e9ecef;
+}
+        
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            border-left: 4px solid #2a5298;
+        }
+        
+        .info-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(0,0,0,0.15);
+        }
+        
+        .info-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 0.95em;
+        }
+        
+        .info-value {
+            color: #2a5298;
+            font-weight: 600;
+            font-size: 1.05em;
+            background: linear-gradient(135deg, #2a5298, #1e3c72);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .filter-debug {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-size: 12px;
+            color: #1565c0;
+            display: none;
+        }
+
+        .wait-summary {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .wait-summary h4 {
+            color: #2a5298;
+            margin-bottom: 15px;
+        }
+
+        .wait-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+        }
+
+        .wait-summary-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .wait-summary-item .wait-class {
+            font-weight: 600;
+            color: #2a5298;
+            margin-bottom: 5px;
+        }
+
+        .wait-summary-item .wait-count {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .wait-summary-item .wait-time {
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .sql-impact-analysis {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .sql-impact-analysis h4 {
+            color: #2a5298;
+            margin-bottom: 15px;
+        }
+
+        .impact-description {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border-left: 4px solid #2a5298;
+        }
+
+        .impact-description h5 {
+            color: #2a5298;
+            margin-bottom: 8px;
+        }
+
+        .impact-description p {
+            color: #666;
+            line-height: 1.4;
+            margin-bottom: 5px;
+        }
+
+        .no-data-message {
+            background: #fff3cd;
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            color: #856404;
+            border: 2px dashed #ffc107;
+            margin: 20px 0;
+        }
+
+        .no-data-message h4 {
+            margin-bottom: 10px;
+            color: #856404;
+        }
+
+        .data-issue-banner {
+            background: #dc3545;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .data-fixed-banner {
+            background: #28a745;
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        @media (max-width: 768px) {
+            .overview-layout {
+                grid-template-columns: 1fr;
+            }
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+            .tab-navigation {
+                flex-direction: column;
+            }
+            .tab-btn {
+                margin-bottom: 5px;
+            }
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    
+        .overview-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px !important;
+            margin-bottom: 20px !important;
+        }
+
+        .metric-card {
+            padding: 15px !important;
+            margin-bottom: 10px !important;
+        }
+
+        .overview-section {
+            margin-bottom: 20px !important;
+        }
+
+        .chart-container {
+            margin: 10px 0 !important;
+            padding: 15px !important;
+        }
+</style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏛️ Oracle Database Health & Performance Analytics Dashboard</h1>
+            <p class="subtitle">Advanced Performance Analytics & Resource Monitoring</p>
+            
+            <div class="data-controls">
+                <div class="data-source-options">
+                    <button class="data-source-btn" onclick="setDataSource('demo')">Demo Data</button>
+                    <button class="data-source-btn active" onclick="setDataSource('files')">Load Data Files</button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="fileInputGroup" class="file-input-group">
+            <div class="data-info">
+                <h4>🎯 Database Health Analysis</h4>
+                <p>Load your database health data file to generate comprehensive performance insights with enhanced SQL resource analysis, session monitoring, and detailed storage analytics.</p>
+            </div>
+            
+            <div class="file-input-row">
+                <label for="combinedDataFile">Select Data File:</label>
+                <input type="file" id="combinedDataFile" accept=".txt" onchange="handleCombinedFileSelect(this)">
+            </div>
+            
+            <div style="display: flex; gap: 15px; justify-content: center; margin-top: 20px;">
+                <button class="load-data-btn" onclick="loadCombinedDataFile()">Generate Report</button>
+                <button class="demo-data-btn" onclick="setDataSource('demo')">Use Demo Data</button>
+            </div>
+        </div>
+        
+        <div id="statusIndicator" class="status-indicator"></div>
+        <div id="loadingIndicator" class="loading-spinner">
+            <div class="spinner"></div>
+            <p>Processing database health data with enhanced analytics...</p>
+        </div>
+        
+        <div id="reportContent" class="main-content" style="display: none;">
+            <!-- Data Quality Banners -->
+            <div id="dataIssueBanner" class="data-issue-banner" style="display: none;">
+                ❌ <strong>Data Collection Issues Detected:</strong> Performance metrics failed to collect properly. Use FINAL POLISHED data collector to resolve.
+            </div>
+            <div id="dataFixedBanner" class="data-fixed-banner" style="display: none;">
+                ✅ <strong>Enhanced Data Detected:</strong> All performance metrics collected successfully with sessions and enhanced monitoring!
+            </div>
+            
+            <!-- Summary Cards -->
+            <div class="summary-cards">
+                <div class="summary-card clickable" onclick="showModal('cpuModal')">
+                    <div class="health-score" id="cpuHealth">Good</div>
+                    <div class="trend stable" id="cpuTrend">→</div>
+                    <h3>Average CPU Usage</h3>
+                    <div class="value" id="cpuValue">--</div>
+                    <div class="unit">%</div>
+                </div>
+                <div class="summary-card clickable" onclick="showModal('connectionsModal')">
+                    <div class="health-score" id="connectionsHealth">Good</div>
+                    <div class="trend stable" id="connectionsTrend">→</div>
+                    <h3>Active Sessions</h3>
+                    <div class="value" id="connectionsValue">--</div>
+                    <div class="unit">sessions</div>
+                </div>
+                <div class="summary-card clickable" onclick="showModal('backupModal')">
+                    <div class="health-score" id="backupHealth">Good</div>
+                    <h3>Last Backup Status</h3>
+                    <div class="value" id="backupValue">--</div>
+                    <div class="unit"></div>
+                </div>
+                <div class="summary-card clickable" onclick="showModal('uptimeModal')">
+                    <div class="health-score" id="uptimeHealth">Excellent</div>
+                    <h3>Database Uptime</h3>
+                    <div class="value" id="uptimeValue">--</div>
+                    <div class="unit">days</div>
+                </div>
+                <div class="summary-card clickable" onclick="showModal('alertsModal')">
+                    <div class="health-score" id="alertsHealth">Good</div>
+                    <h3>Critical Alerts</h3>
+                    <div class="value" id="alertsValue">--</div>
+                    <div class="unit">alerts</div>
+                </div>
+                <div class="summary-card clickable" onclick="showModal('blockingModal')">
+                    <div class="health-score" id="blockingHealth">Good</div>
+                    <h3>Blocking Sessions</h3>
+                    <div class="value" id="blockingValue">--</div>
+                    <div class="unit">sessions</div>
+                </div>
+            </div>
+            
+            <!-- Tab Navigation -->
+            <div class="tab-navigation">
+                <button class="tab-btn active" onclick="showTab('overview')">Overview</button>
+                <button class="tab-btn" onclick="showTab('performance')">Performance</button>
+                <button class="tab-btn" onclick="showTab('connections')">Connections</button>
+                <button class="tab-btn" onclick="showTab('waits')">Wait Events</button>
+                <button class="tab-btn" onclick="showTab('sql')">SQL Analysis</button>
+                <button class="tab-btn" onclick="showTab('storage')">Storage</button>
+                <button class="tab-btn" onclick="showTab('io')">I/O Analysis</button>
+                <button class="tab-btn" onclick="showTab('alerts')">Alerts</button>
+            </div>
+            
+            <!-- Tab Contents -->
+            <div id="overviewTab" class="tab-content active">
+                <!-- POLISHED: Database Information moved to TOP with horizontal pretty layout -->
+                <div class="overview-layout">
+                    <div>
+                        <div id="databaseInfo" class="info-section" style="display: block;">
+                            <h3>🏛️ Database Information</h3>
+                            <div id="infoGrid" class="info-grid"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="chart-container">
+                            <h3>🚀 System Performance Overview</h3>
+                            <div id="performanceDataStatus" class="no-data-message" style="display: none;">
+                                <h4>📊 Performance Data Issue Detected</h4>
+                                <p>Performance metrics could not be collected. This typically indicates:</p>
+                                <p>• Oracle version compatibility issues (gv$sga_info not available)</p>
+                                <p>• Use the <strong>FINAL POLISHED</strong> data collector to resolve this completely</p>
+                            </div>
+                            <div class="chart-wrapper">
+                                <canvas id="performanceChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="charts-grid">
+                    <div class="chart-container">
+                        <h3>🔗 Database Connections Over Time</h3>
+                        <div class="chart-wrapper">
+                            <canvas id="connectionsChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <h3>🚀 Top SQL Queries by Resource Usage</h3>
+                        <div class="chart-wrapper">
+                            <canvas id="sqlResourceChart"></canvas>
+                        </div>
+                        <table class="interactive-table" id="topSqlOverviewTable" style="margin-top: 20px;">
+                            <tbody id="topSqlOverviewTableBody">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="chart-container">
+                        <h3>💾 Tablespace Usage Analysis</h3>
+                        <div id="tablespaceDataStatus" class="no-data-message" style="display: none;">
+                            <h4>📊 No Tablespace Data Available</h4>
+                            <p>Check data collection or database permissions</p>
+                        </div>
+                        <div class="chart-wrapper">
+                            <canvas id="tablespaceChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="performanceTab" class="tab-content">
+                <div id="performanceTabStatus" class="no-data-message" style="display: none;">
+                    <h4>📊 Performance Tab Data Issue</h4>
+                    <p><strong>Root Cause:</strong> ORA-00942 error - gv$sga_info table not available in your Oracle version</p>
+                    <p><strong>Solution:</strong> Use the <strong>FINAL POLISHED</strong> data collector which uses universally compatible views</p>
+                </div>
+                <div class="search-filter">
+                    <input type="text" class="search-input" id="performanceSearch" placeholder="Search performance metrics..." onkeyup="filterTable('performanceTable', this.value)">
+                    <select class="filter-select" id="performanceFilter" onchange="filterTableByColumn('performanceTable', 'metric', this.value)">
+                        <option value="">All Metrics</option>
+                        <option value="CPU_Usage">CPU Usage</option>
+                        <option value="Memory_Usage_SGA">SGA Memory</option>
+                        <option value="Memory_Usage_PGA">PGA Memory</option>
+                        <option value="Memory_Usage_Total_SGA">Total SGA Memory</option>
+                        <option value="Disk_IO">Disk I/O</option>
+                        <option value="Filtered_Active_Sessions">Active Sessions</option>
+                        <option value="Total_User_Sessions">Total User Sessions</option>
+                        <option value="Database_Size_GB">Database Size</option>
+                    </select>
+                </div>
+                <table class="interactive-table" id="performanceTable">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable('performanceTable', 0)">Timestamp</th>
+                            <th onclick="sortTable('performanceTable', 1)">Instance</th>
+                            <th onclick="sortTable('performanceTable', 2)" data-column="metric">Metric</th>
+                            <th onclick="sortTable('performanceTable', 3)">Value</th>
+                            <th>Health Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="performanceTableBody">
+                    </tbody>
+                </table>
+            </div>
+            
+            <div id="connectionsTab" class="tab-content">
+                <div class="chart-container">
+                    <h3>🔗 Connection Analysis Dashboard</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="connectionAnalysisChart"></canvas>
+                    </div>
+                </div>
+                <table class="interactive-table" id="connectionsTable">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable('connectionsTable', 0)">Timestamp</th>
+                            <th onclick="sortTable('connectionsTable', 1)">Instance</th>
+                            <th onclick="sortTable('connectionsTable', 2)">Status</th>
+                            <th onclick="sortTable('connectionsTable', 3)">Count</th>
+                            <th onclick="sortTable('connectionsTable', 4)">Min Login Time</th>
+                            <th onclick="sortTable('connectionsTable', 5)">Max Login Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="connectionsTableBody">
+                    </tbody>
+                </table>
+            </div>
+            
+            <div id="waitsTab" class="tab-content">
+                <div class="wait-summary" id="waitEventsSummary">
+                    <h4>⏱️ Wait Events Summary</h4>
+                    <div class="wait-summary-grid" id="waitSummaryGrid">
+                    </div>
+                </div>
+                <div class="search-filter">
+                    <input type="text" class="search-input" id="waitsSearch" placeholder="Search wait events..." onkeyup="filterTable('waitsTable', this.value)">
+                    <select class="filter-select" id="waitsFilter" onchange="filterTableByColumn('waitsTable', 'wait_class', this.value)">
+                        <option value="">All Wait Classes</option>
+                        <option value="User I/O">User I/O</option>
+                        <option value="System I/O">System I/O</option>
+                        <option value="Commit">Commit</option>
+                        <option value="Concurrency">Concurrency</option>
+                        <option value="Configuration">Configuration</option>
+                        <option value="Other">Other</option>
+                        <option value="CPU">CPU</option>
+                    </select>
+                </div>
+                <table class="interactive-table" id="waitsTable">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable('waitsTable', 0)">Event Name</th>
+                            <th onclick="sortTable('waitsTable', 1)" data-column="wait_class">Wait Class</th>
+                            <th onclick="sortTable('waitsTable', 2)">Total Waits</th>
+                            <th onclick="sortTable('waitsTable', 3)">Time Waited (ms)</th>
+                            <th onclick="sortTable('waitsTable', 4)">Avg Wait (ms)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="waitsTableBody">
+                    </tbody>
+                </table>
+            </div>
+            
+            <div id="sqlTab" class="tab-content">
+                <!-- ENHANCED: SQL Resource Impact Analysis -->
+                <div class="sql-impact-analysis">
+                    <h4>🎯 SQL Resource Impact Analysis</h4>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="impact-description">
+                                <h5>🔥 CPU Time Impact</h5>
+                                <p>Measures total CPU consumed by queries during execution. High CPU may indicate inefficient SQL logic or need for better indexing.</p>
+                            </div>
+                            <div class="impact-description">
+                                <h5>💿 Physical Reads Impact</h5>
+                                <p>Represents disk I/O when data is not found in memory (cache misses). High values can mean excessive disk access, impacting latency.</p>
+                            </div>
+                            <div class="impact-description">
+                                <h5>🧠 Buffer Gets (Logical Reads)</h5>
+                                <p>Number of times Oracle accesses data blocks in memory. Extremely high buffer gets suggest inefficient access paths or unoptimized queries.</p>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="impact-description">
+                                <h5>⏱️ Elapsed Time Impact</h5>
+                                <p>Total time from start to completion including wait times, CPU, and I/O. Long elapsed times highlight queries blocking user processes.</p>
+                            </div>
+                            <div class="impact-description">
+                                <h5>🔄 Executions Frequency</h5>
+                                <p>Total number of times a query has been run. High executions with resource consumption indicate frequent inefficiencies rather than one-off issues.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="search-filter">
+                    <input type="text" class="search-input" id="sqlSearch" placeholder="Search SQL statements..." onkeyup="filterTable('sqlTable', this.value)">
+                    <select class="filter-select" id="sqlFilter" onchange="filterTableByColumn('sqlTable', 'pdb_name', this.value)">
+                        <option value="">All PDBs</option>
+                        <option value="CDB$ROOT">CDB$ROOT</option>
+                        <option value="PDB1">PDB1</option>
+                        <option value="NON_CDB">NON_CDB</option>
+                    </select>
+                </div>
+                <table class="interactive-table" id="sqlTable">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable('sqlTable', 0)">SQL ID</th>
+                            <th onclick="sortTable('sqlTable', 1)" data-column="pdb_name">PDB</th>
+                            <th onclick="sortTable('sqlTable', 2)">CPU Time (s)</th>
+                            <th onclick="sortTable('sqlTable', 3)">Elapsed Time (s)</th>
+                            <th onclick="sortTable('sqlTable', 4)">Executions</th>
+                            <th onclick="sortTable('sqlTable', 5)">Buffer Gets</th>
+                            <th onclick="sortTable('sqlTable', 6)">Disk Reads</th>
+                            <th onclick="sortTable('sqlTable', 7)">CPU Impact</th>
+                            <th onclick="sortTable('sqlTable', 8)">I/O Impact</th>
+                            <th onclick="sortTable('sqlTable', 9)">SQL Text</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sqlTableBody">
+                    </tbody>
+                </table>
+            </div>
+            
+            <div id="storageTab" class="tab-content">
+                <div class="search-filter">
+                    <input type="text" class="search-input" id="storageSearch" placeholder="Search tablespaces..." onkeyup="filterTable('storageTable', this.value)">
+                    <select class="filter-select" id="storageFilter" onchange="filterTableByUsage('storageTable', this.value)">
+                        <option value="">All Usage Levels</option>
+                        <option value="critical">Critical (>95%)</option>
+                        <option value="warning">Warning (80-95%)</option>
+                        <option value="normal">Normal (<80%)</option>
+                    </select>
+                </div>
+                <table class="interactive-table" id="storageTable">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable('storageTable', 0)">PDB</th>
+                            <th onclick="sortTable('storageTable', 1)">Tablespace</th>
+                            <th onclick="sortTable('storageTable', 2)">Total (MB)</th>
+                            <th onclick="sortTable('storageTable', 3)">Used (MB)</th>
+                            <th onclick="sortTable('storageTable', 4)">Free (MB)</th>
+                            <th onclick="sortTable('storageTable', 5)">Usage %</th>
+                            <th>Status</th>
+                            <th>Management</th>
+                            <th>Type</th>
+                        </tr>
+                    </thead>
+                    <tbody id="storageTableBody">
+                    </tbody>
+                </table>
+            </div>
+            
+            <div id="ioTab" class="tab-content">
+                <div class="chart-container">
+                    <h3>💿 I/O Performance Analysis</h3>
+                    <div class="search-filter">
+                        <input type="text" class="search-input" id="ioSearch" placeholder="Search I/O files..." onkeyup="filterTable('ioTable', this.value)">
+                    </div>
+                    <div class="chart-wrapper">
+                        <canvas id="ioChart"></canvas>
+                    </div>
+                </div>
+                <table class="interactive-table" id="ioTable">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable('ioTable', 0)">File Type</th>
+                            <th onclick="sortTable('ioTable', 1)">File Name</th>
+                            <th onclick="sortTable('ioTable', 2)">Physical Reads</th>
+                            <th onclick="sortTable('ioTable', 3)">Physical Writes</th>
+                            <th onclick="sortTable('ioTable', 4)">Total I/O</th>
+                            <th onclick="sortTable('ioTable', 5)">Avg Read Time</th>
+                            <th onclick="sortTable('ioTable', 6)">Avg Write Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ioTableBody">
+                    </tbody>
+                </table>
+            </div>
+            
+            <div id="alertsTab" class="tab-content">
+                <div id="recommendationsList"></div>
+                <div id="alertsList"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modals -->
+    <div id="blockingModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">🔒 Blocking Sessions Details</h2>
+                <button class="close-btn" onclick="hideModal('blockingModal')">&times;</button>
+            </div>
+            <div id="blockingDetails"></div>
+        </div>
+    </div>
+    
+    <div id="cpuModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">🚀 CPU Usage Analysis</h2>
+                <button class="close-btn" onclick="hideModal('cpuModal')">&times;</button>
+            </div>
+            <div id="cpuDetails"></div>
+        </div>
+    </div>
+    
+    <div id="connectionsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">🔗 Active Sessions Analysis</h2>
+                <button class="close-btn" onclick="hideModal('connectionsModal')">&times;</button>
+            </div>
+            <div id="connectionsDetails"></div>
+        </div>
+    </div>
+    
+    <div id="backupModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">💾 Backup Status Details</h2>
+                <button class="close-btn" onclick="hideModal('backupModal')">&times;</button>
+            </div>
+            <div id="backupDetails"></div>
+        </div>
+    </div>
+    
+    <div id="uptimeModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">⏰ Database Uptime Information</h2>
+                <button class="close-btn" onclick="hideModal('uptimeModal')">&times;</button>
+            </div>
+            <div id="uptimeDetails"></div>
+        </div>
+    </div>
+    
+    <div id="alertsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">🚨 Critical Alerts</h2>
+                <button class="close-btn" onclick="hideModal('alertsModal')">&times;</button>
+            </div>
+            <div id="alertsDetailsModal"></div>
+        </div>
+    </div>
+    
+    <script>
+        // Global variables
+        let charts = {};
+        let rawData = {};
+        let combinedDataFile = null;
+        let currentDataSource = 'demo';
+        let databaseInfo = {};
+        let connectionMetrics = [];
+        let ioMetrics = [];
+        let hasPerformanceDataIssue = false;
+        let isFinalPolishedData = false;
+
+        // Initialize the report
+        document.addEventListener('DOMContentLoaded', function() {
+            setDataSource('files');
+        });
+
+        function setDataSource(source) {
+            currentDataSource = source;
+            
+            // Update button states
+            document.querySelectorAll('.data-source-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Show/hide file input group
+            const fileGroup = document.getElementById('fileInputGroup');
+            if (source === 'files') {
+                fileGroup.classList.add('active');
+                document.getElementById('reportContent').style.display = 'none';
+                showStatus('Select your database health data file to generate advanced analytics', 'info');
+            } else {
+                fileGroup.classList.remove('active');
+                loadDemoData();
+            }
+        }
+
+        function handleCombinedFileSelect(input) {
+            const file = input.files[0];
+            if (file) {
+                combinedDataFile = file;
+                
+                // Check if this is FINAL POLISHED data
+                isFinalPolishedData = file.name.includes('FINAL_POLISHED') || file.name.includes('ULTIMATE_FIXED');
+                
+                const statusMessage = isFinalPolishedData ? 
+                    `✅ Selected: ${file.name} (${(file.size/1024).toFixed(1)} KB) - FINAL POLISHED data format detected!` :
+                    `Selected: ${file.name} (${(file.size/1024).toFixed(1)} KB) - Standard data format detected`;
+                
+                showStatus(statusMessage, 'success');
+            }
+        }
+
+        function loadCombinedDataFile() {
+            if (!combinedDataFile) {
+                showStatus('Please select a database health data file first', 'error');
+                return;
+            }
+            
+            showLoading();
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const fileContent = e.target.result;
+                    parseCombinedDataFile(fileContent);
+                    initializeReport();
+                    hideLoading();
+                    document.getElementById('reportContent').style.display = 'block';
+                    
+                    const successMessage = isFinalPolishedData ?
+                        'FINAL POLISHED report generated successfully - All features working perfectly with sessions!' :
+                        hasPerformanceDataIssue ?
+                        'Report generated with data quality warnings. Consider using FINAL POLISHED data collector.' :
+                        'Report generated successfully with all data intact!';
+                    
+                    showStatus(successMessage, 'success');
+                } catch (error) {
+                    hideLoading();
+                    showStatus(`Error processing data file: ${error.message}`, 'error');
+                    console.error('Error:', error);
+                }
+            };
+            
+            reader.readAsText(combinedDataFile);
+        }
+
+        function parseCombinedDataFile(content) {
+            console.log('Parsing combined data file...');
+            
+            // Initialize enhanced data structures
+            rawData = {
+                timestamps: [],
+                cpuData: [],
+                diskData: [],
+                sessionData: [],
+                sgaData: [],
+                pgaData: [],
+                waitEvents: [],
+                blockingSessions: [],
+                sqlQueries: [],
+                backupData: [],
+                tablespaces: [],
+                alerts: [],
+                recommendations: [],
+                performanceMetrics: []
+            };
+            
+            connectionMetrics = [];
+            ioMetrics = [];
+            databaseInfo = {};
+            hasPerformanceDataIssue = false;
+            
+            // Detect FINAL POLISHED data
+            isFinalPolishedData = content.includes('FINAL POLISH') || content.includes('ULTIMATE FIXES') || 
+                                 content.includes('FINAL POLISHED') || content.includes('Filtered_Active_Sessions');
+            
+            // Split content into lines and process sections
+            const lines = content.split('\n');
+            let currentSection = null;
+            let sectionData = [];
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                
+                // Check for performance data collection errors
+                if (line.includes('ORA-00942') && line.includes('gv$sga_info')) {
+                    hasPerformanceDataIssue = true;
+                    console.log('Detected performance data collection issue: ORA-00942 gv$sga_info');
+                }
+                
+                if (line.startsWith('# START_SECTION:')) {
+                    if (currentSection && sectionData.length > 0) {
+                        processSectionData(currentSection, sectionData);
+                    }
+                    currentSection = line.replace('# START_SECTION:', '').trim();
+                    sectionData = [];
+                } else if (line.startsWith('# END_SECTION:')) {
+                    if (currentSection && sectionData.length > 0) {
+                        processSectionData(currentSection, sectionData);
+                    }
+                    currentSection = null;
+                    sectionData = [];
+                } else if (!line.startsWith('#') && line.length > 0 && currentSection && line.indexOf('|') > -1 && !line.includes('ORA-')) {
+                    sectionData.push(line);
+                }
+            }
+            
+            if (currentSection && sectionData.length > 0) {
+                processSectionData(currentSection, sectionData);
+            }
+            
+            console.log('Data parsing completed:', rawData);
+            console.log('Performance data issue detected:', hasPerformanceDataIssue);
+            console.log('Is FINAL POLISHED data:', isFinalPolishedData);
+        }
+
+        function processSectionData(sectionName, data) {
+            console.log(`Processing section: ${sectionName} with ${data.length} rows`);
+            
+            switch (sectionName) {
+                case 'PERFORMANCE_METRICS':
+                    processPerformanceData(data);
+                    break;
+                case 'CONNECTION_METRICS':
+                    processConnectionData(data);
+                    break;
+                case 'WAIT_EVENTS':
+                    processWaitEventsData(data);
+                    break;
+                case 'BLOCKING_SESSIONS':
+                    processBlockingSessionsData(data);
+                    break;
+                case 'SQL_METRICS':
+                    processSqlData(data);
+                    break;
+                case 'BACKUP_METRICS':
+                    processBackupData(data);
+                    break;
+                case 'TABLESPACE_METRICS':
+                    processTablespaceData(data);
+                    break;
+                case 'IO_METRICS':
+                    processIOData(data);
+                    break;
+                case 'ALERT_METRICS':
+                    processAlertData(data);
+                    break;
+                case 'INSTANCE_METRICS':
+                    processInstanceData(data);
+                    break;
+                case 'RECOMMENDATIONS':
+                    processRecommendationsData(data);
+                    break;
+            }
+        }
+
+        function processPerformanceData(data) {
+            const timestampSet = new Set();
+            const cpuMap = new Map();
+            const diskMap = new Map();
+            const sessionMap = new Map();
+            const sgaMap = new Map();
+            const pgaMap = new Map();
+            
+            rawData.performanceMetrics = data.map(line => {
+                const parts = line.split('|');
+                if (parts.length >= 4) {
+                    const timestamp = parts[0];
+                    const instance = parts[1];
+                    const metricType = parts[2];
+                    const value = parseFloat(parts[3]) || 0;
+                    
+                    timestampSet.add(timestamp);
+                    
+                    if (metricType === 'CPU_Usage') {
+                        cpuMap.set(timestamp, value);
+                    } else if (metricType.includes('Memory_Usage_SGA') || metricType === 'Memory_Usage_Total_SGA') {
+                        sgaMap.set(timestamp, value);
+                    } else if (metricType === 'Memory_Usage_PGA') {
+                        pgaMap.set(timestamp, value);
+                    } else if (metricType === 'Disk_IO') {
+                        diskMap.set(timestamp, value);
+                    } else if (metricType === 'Filtered_Active_Sessions' || metricType === 'Total_User_Sessions' || metricType === 'Active_Sessions' || metricType === 'Current_Active_Sessions') {
+                        sessionMap.set(timestamp, value);
+                    }
+                    
+                    return {
+                        timestamp: timestamp,
+                        instance: instance,
+                        metric: metricType,
+                        value: value
+                    };
+                }
+                return null;
+            }).filter(item => item);
+            
+            rawData.timestamps = Array.from(timestampSet).sort();
+            rawData.cpuData = rawData.timestamps.map(ts => cpuMap.get(ts) || 0);
+            rawData.diskData = rawData.timestamps.map(ts => diskMap.get(ts) || 0);
+            rawData.sessionData = rawData.timestamps.map(ts => sessionMap.get(ts) || 0);
+            rawData.sgaData = rawData.timestamps.map(ts => sgaMap.get(ts) || 0);
+            rawData.pgaData = rawData.timestamps.map(ts => pgaMap.get(ts) || 0);
+            
+            console.log(`Processed ${rawData.performanceMetrics.length} performance metrics`);
+        }
+
+        function processConnectionData(data) {
+            connectionMetrics = data.map(line => {
+                const parts = line.split('|');
+                if (parts.length >= 6) {
+                    return {
+                        timestamp: parts[0] || '',
+                        instance_id: parts[1] || '',
+                        status: parts[2] || '',
+                        count: parseInt(parts[3]) || 0,
+                        min_logon_time: parts[4] || '',
+                        max_logon_time: parts[5] || ''
+                    };
+                }
+                return null;
+            }).filter(item => item);
+        }
+
+        function processWaitEventsData(data) {
+            rawData.waitEvents = data.map(line => {
+                const parts = line.split('|');
+                if (parts.length >= 6) {
+                    const timeWaited = parseFloat(parts[5]) || 0;
+                    const totalWaits = parseInt(parts[4]) || 0;
+                    const avgWait = parts.length >= 7 ? parseFloat(parts[6]) || 0 : (totalWaits > 0 ? (timeWaited / totalWaits) : 0);
+                    
+                    return {
+                        timestamp: parts[0] || '',
+                        instance_id: parseInt(parts[1]) || 0,
+                        event: parts[2] || '',
+                        wait_class: parts[3] || '',
+                        total_waits: totalWaits,
+                        time_waited_ms: timeWaited,
+                        avg_wait_ms: avgWait
+                    };
+                }
+                return null;
+            }).filter(item => item);
+        }
+
+        function processBlockingSessionsData(data) {
+            rawData.blockingSessions = data.map(line => {
+                const parts = line.split('|');
+                if (parts.length >= 13) {
+                    return {
+                        timestamp: parts[0] || '',
+                        instance_id: parts[1] || '',
+                        blocking_session: parseInt(parts[2]) || 0,
+                        blocking_serial: parts[3] || '',
+                        blocked_session: parseInt(parts[4]) || 0,
+                        blocked_serial: parts[5] || '',
+                        sql_id: parts[6] || '',
+                        event: parts[7] || '',
+                        wait_class: parts[8] || '',
+                        blocking_duration_sec: parseFloat(parts[9]) || 0,
+                        program: parts[10] || '',
+                        blocked_username: parts[11] || 'Unknown',
+                        blocking_username: parts[12] || 'Unknown'
+                    };
+                }
+                return null;
+            }).filter(item => item);
+        }
+
+        // ENHANCED: Process SQL data with impact analysis
+        function processSqlData(data) {
+            rawData.sqlQueries = data.map(line => {
+                const parts = line.split('|');
+                if (parts.length >= 21) {
+                    return {
+                        sql_id: parts[0] || '',
+                        con_id: parts[1] || '',
+                        pdb_name: parts[2] || '',
+                        sql_text: parts[3] || '',
+                        executions: parseInt(parts[4]) || 0,
+                        cpu_time: parseFloat(parts[5]) || 0,
+                        elapsed_time: parseFloat(parts[6]) || 0,
+                        buffer_gets: parseInt(parts[7]) || 0,
+                        disk_reads: parseInt(parts[8]) || 0,
+                        rows_processed: parseInt(parts[9]) || 0,
+                        plan_hash: parts[10] || '',
+                        cpu_per_exec: parseFloat(parts[11]) || 0,
+                        elapsed_per_exec: parseFloat(parts[12]) || 0,
+                        buffer_gets_per_exec: parseFloat(parts[13]) || 0,
+                        disk_reads_per_exec: parseFloat(parts[14]) || 0,
+                        rows_per_exec: parseFloat(parts[15]) || 0,
+                        cpu_impact: parts[16] || 'LOW_CPU_IMPACT',
+                        io_impact: parts[17] || 'LOW_IO_IMPACT',
+                        logical_reads_impact: parts[18] || 'LOW_LOGICAL_READS',
+                        elapsed_impact: parts[19] || 'LOW_ELAPSED_TIME',
+                        frequency_impact: parts[20] || 'LOW_FREQUENCY'
+                    };
+                }
+                return null;
+            }).filter(item => item);
+        }
+
+        function processBackupData(data) {
+            rawData.backupData = data.map(line => {
+                const parts = line.split('|');
+                if (parts.length >= 8) {
+                    return {
+                        start_time: parts[0] || '',
+                        backup_type: parts[1] || '',
+                        status: parts[2] || '',
+                        duration_min: parseFloat(parts[3]) || 0,
+                        size_mb: parseFloat(parts[4]) || 0,
+                        compressed: parts[5] || '',
+                        device_type: parts[6] || '',
+                        session_key: parts[7] || ''
+                    };
+                }
+                return null;
+            }).filter(item => item);
+        }
+
+        // POLISHED: Enhanced tablespace data processing with more details
+        function processTablespaceData(data) {
+            rawData.tablespaces = data.map(line => {
+                const parts = line.split('|');
+                if (parts.length >= 11) {
+                    return {
+                        con_id: parts[0] || '1',
+                        pdb_name: parts[1] || 'N/A',
+                        tablespace_name: parts[2] || '',
+                        total_mb: parseFloat(parts[3]) || 0,
+                        used_mb: parseFloat(parts[4]) || 0,
+                        free_mb: parseFloat(parts[5]) || 0,
+                        usage_percentage: parseFloat(parts[6]) || 0,
+                        status: parts[7] || 'ONLINE',
+                        extent_management: parts[8] || 'LOCAL',
+                        segment_space_management: parts[9] || 'AUTO',
+                        contents: parts[10] || 'PERMANENT'
+                    };
+                }
+                return null;
+            }).filter(item => item);
+            
+            console.log(`POLISHED: Processed ${rawData.tablespaces.length} enhanced tablespace records`);
+        }
+
+        function processIOData(data) {
+            ioMetrics = data.map(line => {
+                const parts = line.split('|');
+                if (parts.length >= 10) {
+                    return {
+                        timestamp: parts[0] || '',
+                        instance_id: parts[1] || '',
+                        file_type: parts[2] || '',
+                        file_number: parts[3] || '',
+                        file_name: parts[4] || '',
+                        physical_reads: parseInt(parts[5]) || 0,
+                        physical_writes: parseInt(parts[6]) || 0,
+                        total_io: parseInt(parts[7]) || 0,
+                        avg_read_time: parseFloat(parts[8]) || 0,
+                        avg_write_time: parseFloat(parts[9]) || 0
+                    };
+                }
+                return null;
+            }).filter(item => item);
+        }
+
+        function processAlertData(data) {
+            rawData.alerts = data.map(line => {
+                const parts = line.split('|');
+                if (parts.length >= 5) {
+                    return {
+                        timestamp: parts[0] || '',
+                        severity: parts[1] || 'info',
+                        component: parts[2] || '',
+                        message: parts[3] || '',
+                        resolution: parts[4] || ''
+                    };
+                }
+                return null;
+            }).filter(item => item);
+        }
+
+        function processInstanceData(data) {
+            if (data.length > 0) {
+                const parts = data[0].split('|');
+                if (parts.length >= 18) {
+                    databaseInfo = {
+                        instance_name: parts[0] || '',
+                        instance_number: parts[1] || '',
+                        hostname: parts[2] || '',
+                        version: parts[3] || '',
+                        status: parts[4] || '',
+                        startup_time: parts[5] || '',
+                        uptime_days: parseFloat(parts[6]) || 0,
+                        database_status: parts[7] || '',
+                        instance_role: parts[8] || '',
+                        cdb: parts[9] || 'NO',
+                        db_unique_name: parts[10] || '',
+                        database_role: parts[11] || '',
+                        time_preset: parts[12] || '',
+                        collection_start: parts[13] || '',
+                        collection_end: parts[14] || '',
+                        sga_target: parts[15] || '0',
+                        pga_target: parts[16] || '0',
+                        processes: parts[17] || '0'
+                    };
+                }
+            }
+        }
+
+        function processRecommendationsData(data) {
+            rawData.recommendations = data.map(line => {
+                const parts = line.split('|');
+                if (parts.length >= 6) {
+                    return {
+                        category: parts[0] || '',
+                        priority: parts[1] || '',
+                        finding: parts[2] || '',
+                        recommendation: parts[3] || '',
+                        type: parts[4] || '',
+                        timestamp: parts[5] || ''
+                    };
+                }
+                return null;
+            }).filter(item => item);
+        }
+
+        function initializeReport() {
+            showDataQualityBanners();
+            updateSummaryCards();
+            updateDatabaseInfo();
+            initializeCharts();
+            populateInteractiveTables();
+            updateWaitEventsSummary();
+            updateRecommendations();
+            updateAlerts();
+        }
+
+        function showDataQualityBanners() {
+            const dataIssueBanner = document.getElementById('dataIssueBanner');
+            const dataFixedBanner = document.getElementById('dataFixedBanner');
+            const performanceDataStatus = document.getElementById('performanceDataStatus');
+            const performanceTabStatus = document.getElementById('performanceTabStatus');
+            
+            if (isFinalPolishedData) {
+                dataFixedBanner.style.display = 'block';
+                dataIssueBanner.style.display = 'none';
+                performanceDataStatus.style.display = 'none';
+                performanceTabStatus.style.display = 'none';
+            } else if (hasPerformanceDataIssue) {
+                dataIssueBanner.style.display = 'block';
+                dataFixedBanner.style.display = 'none';
+                performanceDataStatus.style.display = 'block';
+                performanceTabStatus.style.display = 'block';
+            } else {
+                dataIssueBanner.style.display = 'none';
+                dataFixedBanner.style.display = 'none';
+                performanceDataStatus.style.display = 'none';
+                performanceTabStatus.style.display = 'none';
+            }
+        }
+
+        function updateSummaryCards() {
+            // CPU Usage
+            if (rawData.cpuData && rawData.cpuData.length > 0) {
+                const avgCpu = rawData.cpuData.reduce((a, b) => a + b, 0) / rawData.cpuData.length;
+                document.getElementById('cpuValue').textContent = avgCpu.toFixed(1);
+                updateHealthIndicator('cpu', avgCpu);
+            }
+            
+            // Connections (now filtered)
+            if (connectionMetrics && connectionMetrics.length > 0) {
+                const totalConnections = connectionMetrics.reduce((sum, conn) => sum + conn.count, 0);
+                const avgConnections = Math.round(totalConnections / connectionMetrics.length);
+                document.getElementById('connectionsValue').textContent = avgConnections;
+                updateHealthIndicator('connections', avgConnections);
+            } else if (rawData.sessionData && rawData.sessionData.length > 0) {
+                const avgSessions = rawData.sessionData.reduce((a, b) => a + b, 0) / rawData.sessionData.length;
+                document.getElementById('connectionsValue').textContent = Math.round(avgSessions);
+                updateHealthIndicator('connections', avgSessions);
+            }
+            
+            // Backup
+            if (rawData.backupData && rawData.backupData.length > 0) {
+                const lastBackup = rawData.backupData[0];
+                document.getElementById('backupValue').textContent = lastBackup.status;
+                updateHealthIndicator('backup', lastBackup.status === 'COMPLETED' ? 100 : 0);
+            }
+            
+            // Uptime
+            if (databaseInfo.uptime_days) {
+                document.getElementById('uptimeValue').textContent = databaseInfo.uptime_days.toFixed(1);
+                updateHealthIndicator('uptime', databaseInfo.uptime_days);
+            }
+            
+            // Alerts
+            if (rawData.alerts) {
+                const criticalAlerts = rawData.alerts.filter(a => a.severity === 'critical').length;
+                document.getElementById('alertsValue').textContent = criticalAlerts;
+                updateHealthIndicator('alerts', criticalAlerts);
+            }
+            
+            // Blocking
+            if (rawData.blockingSessions) {
+                const blockingCount = rawData.blockingSessions.length;
+                document.getElementById('blockingValue').textContent = blockingCount;
+                updateHealthIndicator('blocking', blockingCount);
+            }
+        }
+
+        function updateHealthIndicator(type, value) {
+            const healthElement = document.getElementById(type + 'Health');
+            const trendElement = document.getElementById(type + 'Trend');
+            
+            if (!healthElement) return;
+            
+            let healthClass = 'good';
+            let healthText = 'Good';
+            let trendSymbol = '→';
+            
+            switch (type) {
+                case 'cpu':
+                    if (value > 80) { healthClass = 'critical'; healthText = 'Critical'; }
+                    else if (value > 60) { healthClass = 'warning'; healthText = 'Warning'; }
+                    else if (value > 40) { healthClass = 'good'; healthText = 'Good'; }
+                    else { healthClass = 'excellent'; healthText = 'Excellent'; }
+                    break;
+                case 'connections':
+                    if (value > 500) { healthClass = 'warning'; healthText = 'High'; }
+                    else if (value > 200) { healthClass = 'good'; healthText = 'Good'; }
+                    else { healthClass = 'excellent'; healthText = 'Excellent'; }
+                    break;
+                case 'uptime':
+                    if (value > 30) { healthClass = 'excellent'; healthText = 'Excellent'; }
+                    else if (value > 7) { healthClass = 'good'; healthText = 'Good'; }
+                    else { healthClass = 'warning'; healthText = 'Recent'; }
+                    break;
+                case 'alerts':
+                    if (value > 5) { healthClass = 'critical'; healthText = 'Critical'; }
+                    else if (value > 0) { healthClass = 'warning'; healthText = 'Warning'; }
+                    else { healthClass = 'excellent'; healthText = 'Excellent'; }
+                    break;
+                case 'blocking':
+                    if (value > 10) { healthClass = 'critical'; healthText = 'Critical'; }
+                    else if (value > 0) { healthClass = 'warning'; healthText = 'Warning'; }
+                    else { healthClass = 'excellent'; healthText = 'Excellent'; }
+                    break;
+            }
+            
+            healthElement.className = `health-score ${healthClass}`;
+            healthElement.textContent = healthText;
+            
+            if (trendElement) {
+                trendElement.className = `trend stable`;
+                trendElement.textContent = trendSymbol;
+            }
+        }
+
+        function updateDatabaseInfo() {
+            if (Object.keys(databaseInfo).length === 0) return;
+            
+            const infoSection = document.getElementById('databaseInfo');
+            const infoGrid = document.getElementById('infoGrid');
+            
+            const infoItems = [
+                { label: 'Instance Name', value: databaseInfo.instance_name || 'N/A' },
+                { label: 'Host Name', value: databaseInfo.hostname || 'N/A' },
+                { label: 'Oracle Version', value: databaseInfo.version || 'N/A' },
+                { label: 'Database Status', value: databaseInfo.status || 'N/A' },
+                { label: 'Database Role', value: databaseInfo.database_role || 'N/A' },
+                { label: 'Container Database', value: databaseInfo.cdb || 'NO' },
+                { label: 'SGA Target', value: databaseInfo.sga_target && parseFloat(databaseInfo.sga_target) > 0 ? (parseFloat(databaseInfo.sga_target) / 1024 / 1024 / 1024).toFixed(1) + ' GB' : 'N/A' },
+                { label: 'PGA Target', value: databaseInfo.pga_target && parseFloat(databaseInfo.pga_target) > 0 ? (parseFloat(databaseInfo.pga_target) / 1024 / 1024 / 1024).toFixed(1) + ' GB' : 'N/A' },
+                { label: 'Max Processes', value: databaseInfo.processes || 'N/A' },
+                { label: 'Startup Time', value: databaseInfo.startup_time || 'N/A' },
+                { label: 'Uptime (Days)', value: databaseInfo.uptime_days ? databaseInfo.uptime_days.toFixed(2) : 'N/A' }
+            ];
+            
+            infoGrid.innerHTML = '';
+            infoItems.forEach(item => {
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'info-item';
+                infoDiv.innerHTML = `<span class="info-label">${item.label}</span><span class="info-value">${item.value}</span>`;
+                infoGrid.appendChild(infoDiv);
+            });
+            
+            infoSection.style.display = 'block';
+        }
+
+        function updateWaitEventsSummary() {
+            if (!rawData.waitEvents || rawData.waitEvents.length === 0) return;
+            
+            // FIXED: Group wait events by wait class with proper formatting
+            const waitClassSummary = {};
+            rawData.waitEvents.forEach(event => {
+                const waitClass = event.wait_class || 'Other';
+                if (!waitClassSummary[waitClass]) {
+                    waitClassSummary[waitClass] = { count: 0, totalTime: 0 };
+                }
+                waitClassSummary[waitClass].count += event.total_waits;
+                waitClassSummary[waitClass].totalTime += event.time_waited_ms;
+            });
+            
+            const summaryGrid = document.getElementById('waitSummaryGrid');
+            summaryGrid.innerHTML = '';
+            
+            // Sort by total time waited
+            const sortedWaitClasses = Object.entries(waitClassSummary)
+                .sort((a, b) => b[1].totalTime - a[1].totalTime);
+            
+            sortedWaitClasses.forEach(([waitClass, data]) => {
+                const summaryItem = document.createElement('div');
+                summaryItem.className = 'wait-summary-item';
+                summaryItem.innerHTML = `
+                    <div class="wait-class">${waitClass}</div>
+                    <div class="wait-count">${data.count.toLocaleString()}</div>
+                    <div class="wait-time">${data.totalTime.toFixed(2)} ms</div>
+                `;
+                summaryGrid.appendChild(summaryItem);
+            });
+        }
+
+        function populateInteractiveTables() {
+            // Performance Metrics Table (with FINAL POLISHED data support)
+            const performanceTableBody = document.getElementById('performanceTableBody');
+            performanceTableBody.innerHTML = '';
+            
+            if (hasPerformanceDataIssue && !isFinalPolishedData) {
+                const row = performanceTableBody.insertRow();
+                const cell = row.insertCell();
+                cell.colSpan = 5;
+                cell.style.textAlign = 'center';
+                cell.style.padding = '30px';
+                cell.style.background = '#fff3cd';
+                cell.style.color = '#856404';
+                cell.innerHTML = '⚠️ Performance metrics could not be collected due to ORA-00942 error.<br>Use the <strong>FINAL POLISHED</strong> data collector to resolve this issue.';
+            } else {
+                rawData.performanceMetrics.forEach(metric => {
+                    const row = performanceTableBody.insertRow();
+                    row.insertCell().textContent = metric.timestamp;
+                    row.insertCell().textContent = metric.instance;
+                    row.insertCell().textContent = metric.metric;
+                    
+                    // Format value based on metric type
+                    let formattedValue = metric.value.toFixed(2);
+                    if (metric.metric.includes('Memory_Usage')) {
+                        formattedValue = formattedValue + ' GB';
+                    } else if (metric.metric === 'CPU_Usage' || metric.metric === 'Disk_IO') {
+                        formattedValue = formattedValue + (metric.metric === 'CPU_Usage' ? '%' : ' MB/s');
+                    } else if (metric.metric === 'Database_Size_GB') {
+                        formattedValue = formattedValue + ' GB';
+                    } else if (metric.metric === 'Filtered_Active_Sessions' || metric.metric === 'Total_User_Sessions') {
+                        formattedValue = Math.round(metric.value) + ' sessions';
+                    }
+                    
+                    row.insertCell().textContent = formattedValue;
+                    
+                    // Health status cell
+                    const healthCell = row.insertCell();
+                    let healthClass = 'success';
+                    let healthText = 'Good';
+                    
+                    if (metric.metric === 'CPU_Usage' && metric.value > 80) {
+                        healthClass = 'critical'; healthText = 'High';
+                    } else if (metric.metric === 'CPU_Usage' && metric.value > 60) {
+                        healthClass = 'warning'; healthText = 'Elevated';
+                    }
+                    
+                    healthCell.innerHTML = `<span class="metric-badge ${healthClass}">${healthText}</span>`;
+                    
+                    row.setAttribute('data-metric', metric.metric);
+                    row.setAttribute('data-instance', metric.instance);
+                });
+            }
+            
+            // Connections Table
+            const connectionsTableBody = document.getElementById('connectionsTableBody');
+            connectionsTableBody.innerHTML = '';
+            
+            connectionMetrics.forEach(conn => {
+                const row = connectionsTableBody.insertRow();
+                row.insertCell().textContent = conn.timestamp;
+                row.insertCell().textContent = conn.instance_id;
+                row.insertCell().textContent = conn.status;
+                row.insertCell().textContent = conn.count;
+                row.insertCell().textContent = conn.min_logon_time;
+                row.insertCell().textContent = conn.max_logon_time;
+            });
+            
+            // Wait Events Table
+            const waitsTableBody = document.getElementById('waitsTableBody');
+            waitsTableBody.innerHTML = '';
+            
+            rawData.waitEvents.forEach(waitEvent => {
+                const row = waitsTableBody.insertRow();
+                row.insertCell().textContent = waitEvent.event;
+                row.insertCell().textContent = waitEvent.wait_class;
+                row.insertCell().textContent = waitEvent.total_waits.toLocaleString();
+                row.insertCell().textContent = waitEvent.time_waited_ms.toFixed(2);
+                row.insertCell().textContent = waitEvent.avg_wait_ms.toFixed(4);
+                
+                row.setAttribute('data-event', waitEvent.event);
+                row.setAttribute('data-wait_class', waitEvent.wait_class);
+            });
+            
+            // ENHANCED: SQL Table with impact analysis
+            const sqlTableBody = document.getElementById('sqlTableBody');
+            sqlTableBody.innerHTML = '';
+            
+            rawData.sqlQueries.forEach(sql => {
+                const row = sqlTableBody.insertRow();
+                row.insertCell().textContent = sql.sql_id;
+                row.insertCell().textContent = sql.pdb_name;
+                row.insertCell().textContent = sql.cpu_time.toFixed(2);
+                row.insertCell().textContent = sql.elapsed_time.toFixed(2);
+                row.insertCell().textContent = sql.executions.toLocaleString();
+                row.insertCell().textContent = sql.buffer_gets.toLocaleString();
+                row.insertCell().textContent = sql.disk_reads.toLocaleString();
+                
+                // CPU Impact
+                const cpuImpactCell = row.insertCell();
+                const cpuClass = sql.cpu_impact === 'HIGH_CPU_IMPACT' ? 'critical' : 
+                               sql.cpu_impact === 'MEDIUM_CPU_IMPACT' ? 'warning' : 'success';
+                cpuImpactCell.innerHTML = `<span class="metric-badge ${cpuClass}">${sql.cpu_impact.replace('_CPU_IMPACT', '')}</span>`;
+                
+                // I/O Impact
+                const ioImpactCell = row.insertCell();
+                const ioClass = sql.io_impact === 'HIGH_IO_IMPACT' ? 'critical' : 
+                              sql.io_impact === 'MEDIUM_IO_IMPACT' ? 'warning' : 'success';
+                ioImpactCell.innerHTML = `<span class="metric-badge ${ioClass}">${sql.io_impact.replace('_IO_IMPACT', '')}</span>`;
+                
+                const sqlTextCell = row.insertCell();
+                sqlTextCell.textContent = sql.sql_text.substring(0, 100) + (sql.sql_text.length > 100 ? '...' : '');
+                sqlTextCell.title = sql.sql_text;
+                
+                row.setAttribute('data-sql_id', sql.sql_id);
+                row.setAttribute('data-pdb_name', sql.pdb_name);
+            });
+            
+            // POLISHED: Enhanced Storage Table with more tablespace details
+            const storageTableBody = document.getElementById('storageTableBody');
+            storageTableBody.innerHTML = '';
+            
+            console.log(`Populating enhanced storage table with ${rawData.tablespaces.length} records`);
+            
+            if (rawData.tablespaces.length > 0) {
+                rawData.tablespaces.forEach(ts => {
+                    const row = storageTableBody.insertRow();
+                    row.insertCell().textContent = ts.pdb_name;
+                    row.insertCell().textContent = ts.tablespace_name;
+                    row.insertCell().textContent = ts.total_mb.toFixed(0);
+                    row.insertCell().textContent = ts.used_mb.toFixed(0);
+                    row.insertCell().textContent = ts.free_mb.toFixed(0);
+                    row.insertCell().textContent = ts.usage_percentage.toFixed(1) + '%';
+                    
+                    const statusCell = row.insertCell();
+                    let statusClass = 'success';
+                    let statusText = 'OK';
+                    
+                    if (ts.usage_percentage > 95) {
+                        statusClass = 'critical';
+                        statusText = 'CRITICAL';
+                    } else if (ts.usage_percentage > 80) {
+                        statusClass = 'warning';
+                        statusText = 'WARNING';
+                    }
+                    
+                    statusCell.innerHTML = `<span class="metric-badge ${statusClass}">${statusText}</span>`;
+                    
+                    const managementCell = row.insertCell();
+                    managementCell.innerHTML = `${ts.extent_management}/${ts.segment_space_management}`;
+                    
+                    const typeCell = row.insertCell();
+                    typeCell.textContent = ts.contents;
+                    
+                    row.setAttribute('data-pdb_name', ts.pdb_name);
+                    row.setAttribute('data-tablespace_name', ts.tablespace_name);
+                    row.setAttribute('data-usage_percentage', ts.usage_percentage);
+                });
+            } else {
+                const row = storageTableBody.insertRow();
+                const cell = row.insertCell();
+                cell.colSpan = 9;
+                cell.style.textAlign = 'center';
+                cell.style.padding = '30px';
+                cell.style.color = '#666';
+                cell.innerHTML = '⚠️ No tablespace data available. Check data collection or permissions.';
+            }
+            
+            // I/O Analysis Table
+            const ioTableBody = document.getElementById('ioTableBody');
+            ioTableBody.innerHTML = '';
+            
+            ioMetrics.forEach(io => {
+                const row = ioTableBody.insertRow();
+                row.insertCell().textContent = io.file_type;
+                row.insertCell().textContent = io.file_name.substring(io.file_name.lastIndexOf('/') + 1);
+                row.insertCell().textContent = io.physical_reads.toLocaleString();
+                row.insertCell().textContent = io.physical_writes.toLocaleString();
+                row.insertCell().textContent = io.total_io.toLocaleString();
+                row.insertCell().textContent = io.avg_read_time.toFixed(2) + ' ms';
+                row.insertCell().textContent = io.avg_write_time.toFixed(2) + ' ms';
+            });
+        }
+
+        function updateRecommendations() {
+            const recSection = document.getElementById('recommendationsList');
+            recSection.innerHTML = '<h3>💡 Intelligent Recommendations</h3>';
+            
+            if (!rawData.recommendations || rawData.recommendations.length === 0) return;
+            
+            rawData.recommendations.forEach(rec => {
+                const recDiv = document.createElement('div');
+                recDiv.style.cssText = 'background: #f8f9fa; padding: 20px; margin: 15px 0; border-radius: 10px; border-left: 5px solid #2a5298;';
+                
+                let priorityColor = rec.priority === 'CRITICAL' ? '#dc3545' : 
+                                   rec.priority === 'HIGH' ? '#fd7e14' : 
+                                   rec.priority === 'MEDIUM' ? '#ffc107' : '#28a745';
+                
+                recDiv.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                        <div style="font-weight: bold; color: #2a5298; font-size: 1.1em;">${rec.category}</div>
+                        <div style="font-size: 12px; background: ${priorityColor}; color: white; padding: 4px 12px; border-radius: 15px; font-weight: 600;">${rec.priority}</div>
+                    </div>
+                    <div style="margin-bottom: 8px; color: #555; line-height: 1.4;"><strong>Finding:</strong> ${rec.finding}</div>
+                    <div style="color: #2e7d32; font-weight: 500; line-height: 1.4;"><strong>Recommendation:</strong> ${rec.recommendation}</div>
+                `;
+                recSection.appendChild(recDiv);
+            });
+        }
+
+        function updateAlerts() {
+            const alertsSection = document.getElementById('alertsList');
+            alertsSection.innerHTML = '<h3>🚨 System Alerts & Warnings</h3>';
+            
+            if (!rawData.alerts || rawData.alerts.length === 0) {
+                alertsSection.innerHTML += '<div style="background: #d4edda; padding: 15px; border-radius: 10px; color: #155724;"><strong>✅ No active alerts found.</strong> System appears to be running normally.</div>';
+                return;
+            }
+            
+            rawData.alerts.forEach(alert => {
+                const alertDiv = document.createElement('div');
+                
+                let alertStyle = 'background: #fff3cd; border-left: 5px solid #ffc107;';
+                let severityIcon = '⚠️';
+                
+                if (alert.severity === 'critical') {
+                    alertStyle = 'background: #f8d7da; border-left: 5px solid #dc3545;';
+                    severityIcon = '🔴';
+                } else if (alert.severity === 'info') {
+                    alertStyle = 'background: #d1ecf1; border-left: 5px solid #17a2b8;';
+                    severityIcon = 'ℹ️';
+                }
+                
+                alertDiv.style.cssText = alertStyle + ' padding: 15px; margin: 10px 0; border-radius: 10px;';
+                
+                alertDiv.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                        <div style="font-weight: bold; text-transform: capitalize;">${severityIcon} ${alert.severity.toUpperCase()}</div>
+                        <div style="font-size: 12px; color: #666;">${formatTimestamp(alert.timestamp)}</div>
+                    </div>
+                    <div style="margin-bottom: 8px; font-size: 1.05em; font-weight: 500;">${alert.message}</div>
+                    <div style="font-size: 12px; color: #666; margin-bottom: 5px;"><strong>Component:</strong> ${alert.component}</div>
+                    ${alert.resolution ? `<div style="font-size: 13px; color: #2e7d32; font-weight: 500; padding: 8px; background: rgba(46, 125, 50, 0.1); border-radius: 5px;"><strong>💡 Action:</strong> ${alert.resolution}</div>` : ''}
+                `;
+                alertsSection.appendChild(alertDiv);
+            });
+        }
+
+        function initializeCharts() {
+            // Performance Chart (with data issue handling)
+            const perfCtx = document.getElementById('performanceChart').getContext('2d');
+            if (charts.performance) charts.performance.destroy();
+            
+            if (hasPerformanceDataIssue && !isFinalPolishedData) {
+                // Show data issue message instead of empty chart
+                const chartContainer = perfCtx.canvas.parentElement;
+                chartContainer.innerHTML = `
+                    <div class="no-data-message">
+                        <h4>📊 Performance Data Collection Issue</h4>
+                        <p><strong>Error:</strong> ORA-00942 - gv$sga_info table not available</p>
+                        <p><strong>Solution:</strong> Use the FINAL POLISHED data collector which uses universally compatible Oracle views</p>
+                        <p><strong>Compatibility:</strong> FINAL POLISHED works with Oracle 11g-21c</p>
+                    </div>
+                `;
+            } else {
+                charts.performance = new Chart(perfCtx, {datasets: [{},],
+                    type: 'line',
+                    data: {
+                        labels: rawData.timestamps.slice(-50),
+                        datasets: [
+                            {
+                                label: 'CPU Usage %',
+                                data: rawData.cpuData.slice(-50),
+                                borderColor: '#ff6b6b',
+                                backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                                tension: 0.4,
+                                fill: true
+                            },
+                            {
+                                label: 'Disk I/O MB/s',
+                                data: rawData.diskData.slice(-50),
+                                borderColor: '#45b7d1',
+                                backgroundColor: 'rgba(69, 183, 209, 0.1)',
+                                tension: 0.4,
+                                fill: true
+                            },
+                            {
+                                label: 'sessions',
+                                data: rawData.sessionData.slice(-50),
+                                borderColor: '#4ecdc4',
+                                backgroundColor: 'rgba(78, 205, 196, 0.1)',
+                                tension: 0.4,
+                                fill: true
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { intersect: false },
+                        plugins: {
+                            legend: { position: 'top' },
+                            tooltip: { mode: 'index' }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: 'Value' }
+                            },
+                            x: {
+                                title: { display: true, text: 'Time' }
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // Connections Chart
+            const connCtx = document.getElementById('connectionsChart').getContext('2d');
+            if (charts.connections) charts.connections.destroy();
+            
+            let connLabels = [];
+            let activeConnections = [];
+            let inactiveConnections = [];
+            
+            if (connectionMetrics.length > 0) {
+                const connMap = new Map();
+                connectionMetrics.forEach(conn => {
+                    if (!connMap.has(conn.timestamp)) {
+                        connMap.set(conn.timestamp, { active: 0, inactive: 0 });
+                    }
+                    if (conn.status === 'ACTIVE') {
+                        connMap.get(conn.timestamp).active = conn.count;
+                    } else if (conn.status === 'INACTIVE') {
+                        connMap.get(conn.timestamp).inactive = conn.count;
+                    }
+                });
+                
+                connLabels = Array.from(connMap.keys()).slice(-20);
+                activeConnections = connLabels.map(ts => connMap.get(ts).active);
+                inactiveConnections = connLabels.map(ts => connMap.get(ts).inactive);
+            } else if (rawData.sessionData.length > 0) {
+                connLabels = rawData.timestamps.slice(-20);
+                activeConnections = rawData.sessionData.slice(-20);
+                inactiveConnections = rawData.sessionData.slice(-20).map(x => Math.round(x * 0.3));
+            }
+            
+            charts.connections = new Chart(connCtx, {
+                type: 'line',
+                data: {
+                    labels: connLabels,
+                    datasets: [
+                        {
+                            label: 'Active Sessions Analysis',
+                            data: activeConnections,
+                            borderColor: '#28a745',
+                            backgroundColor: 'rgba(40, 167, 69, 0.2)',
+                            tension: 0.4,
+                            fill: true
+                        },
+                        {
+                            label: 'Inactive Sessions',
+                            data: inactiveConnections,
+                            borderColor: '#ffc107',
+                            backgroundColor: 'rgba(255, 193, 7, 0.2)',
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: { mode: 'index' }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Number of Sessions' }
+                        }
+                    }
+                }
+            });
+            
+            // POLISHED: SQL Resource Chart - FIXED X-axis to show SQL IDs
+            const sqlCtx = document.getElementById('sqlResourceChart').getContext('2d');
+            if (charts.sqlResource) charts.sqlResource.destroy();
+            
+            if (rawData.sqlQueries.length > 0) {
+                const topQueries = rawData.sqlQueries.slice(0, 10);
+                const sqlLabels = topQueries.map(sql => sql.sql_id); // FIXED: Now shows actual SQL IDs
+                const cpuTimes = topQueries.map(sql => sql.cpu_time);
+                const bufferGets = topQueries.map(sql => sql.buffer_gets / 1000);
+                
+                charts.sqlResource = new Chart(sqlCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: sqlLabels,
+                        datasets: [
+                            {
+                                label: 'CPU Time (seconds)',
+                                data: cpuTimes,
+                                backgroundColor: 'rgba(255, 107, 107, 0.8)',
+                                borderColor: '#ff6b6b',
+                                borderWidth: 2
+                            },
+                            {
+                                label: 'Buffer Gets (thousands)',
+                                data: bufferGets,
+                                backgroundColor: 'rgba(69, 183, 209, 0.8)',
+                                borderColor: '#45b7d1',
+                                borderWidth: 2
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'top' }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: 'Resource Usage' }
+                            },
+                            x: {
+                                title: { display: true, text: 'SQL ID' }
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // POLISHED: Tablespace Usage Chart - Enhanced with 15+ tablespaces
+            const tsCtx = document.getElementById('tablespaceChart').getContext('2d');
+            if (charts.tablespace) charts.tablespace.destroy();
+            
+            console.log(`Creating enhanced tablespace BAR CHART with ${rawData.tablespaces.length} tablespaces`);
+            
+            if (rawData.tablespaces.length > 0) {
+                const tsLabels = rawData.tablespaces.map(ts => `${ts.pdb_name}/${ts.tablespace_name}`);
+                const usageData = rawData.tablespaces.map(ts => ts.usage_percentage);
+                const colors = rawData.tablespaces.map(ts => {
+                    if (ts.usage_percentage > 95) return 'rgba(220, 53, 69, 0.8)';
+                    if (ts.usage_percentage > 80) return 'rgba(255, 193, 7, 0.8)';
+                    return 'rgba(40, 167, 69, 0.8)';
+                });
+                
+                charts.tablespace = new Chart(tsCtx, {
+                    type: 'bar', // BAR CHART as requested
+                    data: {
+                        labels: tsLabels,
+                        datasets: [{
+                            label: 'Usage %',
+                            data: usageData,
+                            backgroundColor: colors,
+                            borderWidth: 2,
+                            borderColor: '#fff'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return context.label + ': ' + context.parsed.y + '% full';
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 100,
+                                title: { display: true, text: 'Usage Percentage (%)' }
+                            },
+                            x: {
+                                title: { display: true, text: 'Tablespace (PDB/Name)' }
+                            }
+                        }
+                    }
+                });
+            } else {
+                // Show message when no data available
+                const chartContainer = tsCtx.canvas.parentElement;
+                const statusDiv = document.getElementById('tablespaceDataStatus');
+                statusDiv.style.display = 'block';
+                tsCtx.canvas.style.display = 'none';
+            }
+            
+            // Connection Analysis Chart (in connections tab)
+            const connAnalysisCtx = document.getElementById('connectionAnalysisChart').getContext('2d');
+            if (charts.connectionAnalysis) charts.connectionAnalysis.destroy();
+            
+            charts.connectionAnalysis = new Chart(connAnalysisCtx, {
+                type: 'line',
+                data: {
+                    labels: connLabels,
+                    datasets: [
+                        {
+                            label: 'Total Sessions',
+                            data: activeConnections.map((active, index) => active + inactiveConnections[index]),
+                            borderColor: '#2a5298',
+                            backgroundColor: 'rgba(42, 82, 152, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Number of Sessions' }
+                        }
+                    }
+                }
+            });
+            
+            // I/O Chart
+            if (ioMetrics.length > 0) {
+                const ioCtx = document.getElementById('ioChart').getContext('2d');
+                if (charts.io) charts.io.destroy();
+                
+                const topIOFiles = ioMetrics.slice(0, 10);
+                const ioLabels = topIOFiles.map(io => io.file_name.substring(io.file_name.lastIndexOf('/') + 1));
+                const readData = topIOFiles.map(io => io.physical_reads);
+                const writeData = topIOFiles.map(io => io.physical_writes);
+                
+                charts.io = new Chart(ioCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: ioLabels,
+                        datasets: [
+                            {
+                                label: 'Physical Reads',
+                                data: readData,
+                                backgroundColor: 'rgba(78, 205, 196, 0.8)',
+                                borderColor: '#4ecdc4',
+                                borderWidth: 2
+                            },
+                            {
+                                label: 'Physical Writes',
+                                data: writeData,
+                                backgroundColor: 'rgba(255, 107, 107, 0.8)',
+                                borderColor: '#ff6b6b',
+                                borderWidth: 2
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'top' }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: 'I/O Operations' }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // Tab navigation functions
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            document.getElementById(tabName + 'Tab').classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // Modal functions
+        function showModal(modalId) {
+            document.getElementById(modalId).style.display = 'block';
+            
+            // Populate modal content
+            switch(modalId) {
+                case 'blockingModal':
+                    populateBlockingModal();
+                    break;
+                case 'cpuModal':
+                    populateCpuModal();
+                    break;
+                case 'connectionsModal':
+                    populateConnectionsModal();
+                    break;
+                case 'backupModal':
+                    populateBackupModal();
+                    break;
+                case 'uptimeModal':
+                    populateUptimeModal();
+                    break;
+                case 'alertsModal':
+                    populateAlertsModal();
+                    break;
+            }
+        }
+
+        function hideModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        function populateBlockingModal() {
+            const detailsDiv = document.getElementById('blockingDetails');
+            
+            if (!rawData.blockingSessions || rawData.blockingSessions.length === 0) {
+                detailsDiv.innerHTML = '<div style="background: #d4edda; padding: 20px; border-radius: 10px; color: #155724;"><strong>✅ No blocking sessions found</strong><br>This indicates good concurrency performance with minimal session conflicts.</div>';
+                return;
+            }
+            
+            let html = '<div style="background: #f8d7da; padding: 15px; border-radius: 10px; margin-bottom: 20px; color: #721c24;"><strong>🚨 Active Blocking Sessions Detected</strong><br>Review the following blocking sessions and consider resolving long-running transactions.</div>';
+            
+            html += '<table class="interactive-table">';
+            html += '<thead><tr><th>Timestamp</th><th>Blocking User</th><th>Blocking SID</th><th>Blocked User</th><th>Blocked SID</th><th>Wait Event</th><th>Duration (sec)</th><th>SQL ID</th></tr></thead>';
+            html += '<tbody>';
+            
+            rawData.blockingSessions.forEach(bs => {
+                html += `<tr>
+                    <td>${bs.timestamp}</td>
+                    <td><strong style="color: #dc3545;">${bs.blocking_username}</strong></td>
+                    <td>${bs.blocking_session}</td>
+                    <td><strong style="color: #fd7e14;">${bs.blocked_username}</strong></td>
+                    <td>${bs.blocked_session}</td>
+                    <td>${bs.event}</td>
+                    <td><span class="metric-badge ${bs.blocking_duration_sec > 60 ? 'critical' : 'warning'}">${bs.blocking_duration_sec.toFixed(2)}</span></td>
+                    <td><code>${bs.sql_id}</code></td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table>';
+            detailsDiv.innerHTML = html;
+        }
+
+        function populateCpuModal() {
+            const detailsDiv = document.getElementById('cpuDetails');
+            
+            if (!rawData.performanceMetrics) {
+                detailsDiv.innerHTML = '<p>No CPU performance data available.</p>';
+                return;
+            }
+            
+            const cpuMetrics = rawData.performanceMetrics.filter(m => m.metric === 'CPU_Usage');
+            if (cpuMetrics.length === 0) {
+                if (hasPerformanceDataIssue) {
+                    detailsDiv.innerHTML = `
+                        <div class="no-data-message">
+                            <h4>📊 CPU Performance Data Issue</h4>
+                            <p><strong>Issue:</strong> CPU metrics could not be collected due to Oracle compatibility issues</p>
+                            <p><strong>Error:</strong> ORA-00942 - gv$sga_info table not available in your Oracle version</p>
+                            <p><strong>Solution:</strong> Use the <strong>FINAL POLISHED</strong> data collector which uses v$sysmetric_history (universally available)</p>
+                        </div>
+                    `;
+                } else {
+                    detailsDiv.innerHTML = '<p>No CPU usage data found.</p>';
+                }
+                return;
+            }
+            
+            const avgCpu = cpuMetrics.reduce((sum, m) => sum + m.value, 0) / cpuMetrics.length;
+            const maxCpu = Math.max(...cpuMetrics.map(m => m.value));
+            const minCpu = Math.min(...cpuMetrics.map(m => m.value));
+            
+            detailsDiv.innerHTML = `
+                <div class="row">
+                    <div class="col-6">
+                        <h4>📊 CPU Usage Statistics</h4>
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <span class="info-label">Average CPU:</span>
+                                <span class="info-value">${avgCpu.toFixed(2)}%</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Peak CPU:</span>
+                                <span class="info-value">${maxCpu.toFixed(2)}%</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Minimum CPU:</span>
+                                <span class="info-value">${minCpu.toFixed(2)}%</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <h4>🎯 Performance Analysis</h4>
+                        <p>CPU performance is ${avgCpu > 80 ? 'critical and requires immediate attention' : avgCpu > 60 ? 'elevated and should be monitored' : 'within normal ranges'}.</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function populateConnectionsModal() {
+            const detailsDiv = document.getElementById('connectionsDetails');
+            
+            if (connectionMetrics.length > 0) {
+                const totalActive = connectionMetrics.filter(c => c.status === 'ACTIVE').reduce((sum, c) => sum + c.count, 0);
+                const totalInactive = connectionMetrics.filter(c => c.status === 'INACTIVE').reduce((sum, c) => sum + c.count, 0);
+                
+                detailsDiv.innerHTML = `
+                    <div style="background: #e3f2fd; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                        <h4>🔍 Session Filtering Applied</h4>
+                        <p><strong>FINAL POLISHED Enhancement:</strong> Session counts now exclude SYS and SYSTEM users for more accurate application monitoring.</p>
+                        <p>This provides cleaner metrics focusing on actual user and application sessions.</p>
+                    </div>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="info-label">Total Active Sessions Analysis:</span>
+                            <span class="info-value">${totalActive}</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Total Inactive Sessions:</span>
+                            <span class="info-value">${totalInactive}</span>
+                        </div>
+                    </div>
+                `;
+            } else {
+                detailsDiv.innerHTML = '<p>Connection metrics are estimated based on session activity data (excludes SYS/SYSTEM users).</p>';
+            }
+        }
+
+        function populateBackupModal() {
+            const detailsDiv = document.getElementById('backupDetails');
+            
+            if (!rawData.backupData || rawData.backupData.length === 0) {
+                detailsDiv.innerHTML = '<p>No backup data available.</p>';
+                return;
+            }
+            
+            let html = '<table class="interactive-table">';
+            html += '<thead><tr><th>Start Time</th><th>Type</th><th>Status</th><th>Duration (min)</th><th>Size (MB)</th></tr></thead>';
+            html += '<tbody>';
+            
+            rawData.backupData.forEach(backup => {
+                html += `<tr>
+                    <td>${backup.start_time}</td>
+                    <td>${backup.backup_type}</td>
+                    <td><span class="metric-badge ${backup.status.toLowerCase() === 'completed' ? 'success' : 'critical'}">${backup.status}</span></td>
+                    <td>${backup.duration_min.toFixed(1)}</td>
+                    <td>${backup.size_mb.toFixed(0)}</td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table>';
+            detailsDiv.innerHTML = html;
+        }
+
+        function populateUptimeModal() {
+            const detailsDiv = document.getElementById('uptimeDetails');
+            
+            if (!databaseInfo.startup_time) {
+                detailsDiv.innerHTML = '<p>Database uptime information not available.</p>';
+                return;
+            }
+            
+            const uptimeDays = databaseInfo.uptime_days;
+            
+            detailsDiv.innerHTML = `
+                <div class="info-grid">
+                    <div class="info-item">
+                        <span class="info-label">Started:</span>
+                        <span class="info-value">${databaseInfo.startup_time}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Total Uptime:</span>
+                        <span class="info-value">${uptimeDays.toFixed(2)} days</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Database Version:</span>
+                        <span class="info-value">${databaseInfo.version}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        function populateAlertsModal() {
+            const detailsDiv = document.getElementById('alertsDetailsModal');
+            
+            const criticalAlerts = rawData.alerts.filter(a => a.severity === 'critical');
+            
+            if (criticalAlerts.length === 0) {
+                detailsDiv.innerHTML = '<p>No critical alerts found. System appears to be running normally.</p>';
+                return;
+            }
+            
+            let html = '<h4>Critical Alerts Requiring Immediate Attention</h4>';
+            
+            criticalAlerts.forEach(alert => {
+                html += `<div style="background: #f8d7da; padding: 15px; margin: 10px 0; border-radius: 10px;">
+                    <div style="font-weight: bold; margin-bottom: 8px;">${alert.component}</div>
+                    <div style="margin-bottom: 8px;">${alert.message}</div>
+                    <div style="font-size: 12px; color: #2e7d32;"><strong>Resolution:</strong> ${alert.resolution}</div>
+                </div>`;
+            });
+            
+            detailsDiv.innerHTML = html;
+        }
+
+        // Table filtering functions
+        function filterTable(tableId, searchTerm) {
+            const table = document.getElementById(tableId);
+            const rows = table.getElementsByTagName('tr');
+            
+            for (let i = 1; i < rows.length; i++) {
+                let showRow = false;
+                const cells = rows[i].getElementsByTagName('td');
+                
+                for (let j = 0; j < cells.length; j++) {
+                    if (cells[j].textContent.toLowerCase().includes(searchTerm.toLowerCase())) {
+                        showRow = true;
+                        break;
+                    }
+                }
+                
+                rows[i].style.display = showRow ? '' : 'none';
+            }
+        }
+
+        function filterTableByColumn(tableId, columnName, filterValue) {
+            const table = document.getElementById(tableId);
+            const tbody = table.tBodies[0];
+            const rows = Array.from(tbody.rows);
+            
+            if (!filterValue || filterValue === '') {
+                rows.forEach(row => row.style.display = '');
+                return;
+            }
+            
+            let matchCount = 0;
+            rows.forEach(row => {
+                const dataAttribute = row.getAttribute(`data-${columnName}`);
+                let showRow = false;
+                
+                if (dataAttribute) {
+                    showRow = dataAttribute.toLowerCase() === filterValue.toLowerCase();
+                } else {
+                    const headers = table.querySelectorAll('th[data-column]');
+                    let columnIndex = -1;
+                    
+                    headers.forEach((header, index) => {
+                        if (header.getAttribute('data-column') === columnName) {
+                            columnIndex = index;
+                        }
+                    });
+                    
+                    if (columnIndex !== -1 && row.cells[columnIndex]) {
+                        const cellText = row.cells[columnIndex].textContent.trim();
+                        showRow = cellText.toLowerCase() === filterValue.toLowerCase();
+                    }
+                }
+                
+                row.style.display = showRow ? '' : 'none';
+                if (showRow) matchCount++;
+            });
+            
+            console.log(`${tableId} filter: ${columnName} = "${filterValue}" | Matches: ${matchCount}`);
+        }
+
+        function filterTableByUsage(tableId, usageLevel) {
+            const table = document.getElementById(tableId);
+            const tbody = table.tBodies[0];
+            const rows = Array.from(tbody.rows);
+            
+            if (!usageLevel || usageLevel === '') {
+                rows.forEach(row => row.style.display = '');
+                return;
+            }
+            
+            let matchCount = 0;
+            rows.forEach(row => {
+                const usagePercentage = parseFloat(row.getAttribute('data-usage_percentage')) || 0;
+                let showRow = false;
+                
+                switch(usageLevel) {
+                    case 'critical':
+                        showRow = usagePercentage > 95;
+                        break;
+                    case 'warning':
+                        showRow = usagePercentage >= 80 && usagePercentage <= 95;
+                        break;
+                    case 'normal':
+                        showRow = usagePercentage < 80;
+                        break;
+                }
+                
+                row.style.display = showRow ? '' : 'none';
+                if (showRow) matchCount++;
+            });
+        }
+
+        function sortTable(tableId, columnIndex) {
+            const table = document.getElementById(tableId);
+            const tbody = table.tBodies[0];
+            const rows = Array.from(tbody.rows);
+            
+            rows.sort((a, b) => {
+                const aValue = a.cells[columnIndex].textContent;
+                const bValue = b.cells[columnIndex].textContent;
+                
+                const aNum = parseFloat(aValue.replace(/[,%]/g, ''));
+                const bNum = parseFloat(bValue.replace(/[,%]/g, ''));
+                
+                if (!isNaN(aNum) && !isNaN(bNum)) {
+                    return bNum - aNum;
+                }
+                
+                return aValue.localeCompare(bValue);
+            });
+            
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
+        // Utility functions
+        function formatTimestamp(timestamp) {
+            if (!timestamp) return 'N/A';
+            
+            try {
+                const date = new Date(timestamp);
+                const now = new Date();
+                const diffMs = now - date;
+                const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                const diffDays = Math.floor(diffHours / 24);
+                
+                if (diffDays > 0) {
+                    return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+                } else if (diffHours > 0) {
+                    return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+                } else {
+                    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+                    return `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
+                }
+            } catch (e) {
+                return timestamp;
+            }
+        }
+
+        function showStatus(message, type) {
+            const indicator = document.getElementById('statusIndicator');
+            indicator.textContent = message;
+            indicator.className = `status-indicator ${type}`;
+            indicator.style.display = 'block';
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    indicator.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        function showLoading() {
+            document.getElementById('loadingIndicator').style.display = 'block';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingIndicator').style.display = 'none';
+        }
+
+        // Demo data function
+        function loadDemoData() {
+            showLoading();
+            setTimeout(() => {
+                generateFinalPolishedMockData();
+                initializeReport();
+                hideLoading();
+                document.getElementById('reportContent').style.display = 'block';
+                showStatus('FINAL POLISHED demo data with sessions and enhanced tablespaces loaded successfully!', 'success');
+            }, 1500);
+        }
+
+        function generateFinalPolishedMockData() {
+            isFinalPolishedData = true; // Set this to true for demo
+            hasPerformanceDataIssue = false; // No issues in demo data
+            
+            const days = 7;
+            rawData.timestamps = [];
+            rawData.cpuData = [];
+            rawData.diskData = [];
+            rawData.sessionData = [];
+            rawData.performanceMetrics = [];
+            
+            for (let i = 0; i < days * 24; i++) {
+                const date = new Date();
+                date.setHours(date.getHours() - (days * 24 - i));
+                const timestamp = date.toISOString().slice(0, 19).replace('T', ' ');
+                
+                rawData.timestamps.push(timestamp);
+                
+                const baseCpu = Math.sin(i * 0.1) * 20 + 30 + Math.random() * 10;
+                const cpu = Math.max(0, Math.min(100, baseCpu));
+                const disk = Math.max(0, Math.min(50, baseCpu - 20 + Math.random() * 30));
+                const sessions = Math.max(5, Math.round((baseCpu / 2 + Math.random() * 15) * 0.7)); // Reduced due to filtering
+                
+                rawData.cpuData.push(cpu);
+                rawData.diskData.push(disk);
+                rawData.sessionData.push(sessions);
+                
+                rawData.performanceMetrics.push(
+                    { timestamp, instance: '1', metric: 'CPU_Usage', value: cpu },
+                    { timestamp, instance: '1', metric: 'Disk_IO', value: disk },
+                    { timestamp, instance: '1', metric: 'Filtered_Active_Sessions', value: sessions },
+                    { timestamp, instance: '1', metric: 'Total_User_Sessions', value: sessions + Math.round(Math.random() * 5) },
+                    { timestamp, instance: '1', metric: 'Memory_Usage_SGA', value: 8.5 },
+                    { timestamp, instance: '1', metric: 'Memory_Usage_PGA', value: 2.1 },
+                    { timestamp, instance: '1', metric: 'Database_Size_GB', value: 125.7 }
+                );
+            }
+            
+            // Connection metrics
+            connectionMetrics = [];
+            for (let i = 0; i < 20; i++) {
+                const timestamp = rawData.timestamps[i * 5];
+                const activeCount = Math.round(10 + Math.random() * 18); // Reduced due to filtering
+                const inactiveCount = Math.round(6 + Math.random() * 8);
+                connectionMetrics.push(
+                    { timestamp, instance_id: '1', status: 'ACTIVE', count: activeCount, min_logon_time: timestamp, max_logon_time: timestamp },
+                    { timestamp, instance_id: '1', status: 'INACTIVE', count: inactiveCount, min_logon_time: timestamp, max_logon_time: timestamp }
+                );
+            }
+            
+            // Wait events
+            rawData.waitEvents = [
+                { event: 'db file sequential read', wait_class: 'User I/O', time_waited_ms: 125000, total_waits: 45000, avg_wait_ms: 2.78 },
+                { event: 'log file sync', wait_class: 'Commit', time_waited_ms: 89000, total_waits: 12000, avg_wait_ms: 7.42 },
+                { event: 'CPU time', wait_class: 'CPU', time_waited_ms: 78000, total_waits: 0, avg_wait_ms: 0 },
+                { event: 'db file scattered read', wait_class: 'User I/O', time_waited_ms: 67000, total_waits: 8900, avg_wait_ms: 7.53 },
+                { event: 'control file parallel write', wait_class: 'System I/O', time_waited_ms: 34000, total_waits: 1500, avg_wait_ms: 22.67 },
+                { event: 'enq: TX - row lock contention', wait_class: 'Concurrency', time_waited_ms: 23000, total_waits: 450, avg_wait_ms: 51.11 }
+            ];
+            
+            // Blocking sessions
+            rawData.blockingSessions = [
+                { 
+                    timestamp: rawData.timestamps[10], blocking_session: 1234, blocked_session: 5678,
+                    event: 'enq: TX - row lock contention', blocking_duration_sec: 45.2, sql_id: 'abc123def456',
+                    blocked_username: 'APP_USER', blocking_username: 'BATCH_USER', program: 'sqlplus.exe'
+                }
+            ];
+            
+            // Enhanced SQL queries with actual SQL IDs
+            rawData.sqlQueries = [
+                { 
+                    sql_id: '4fskz9cjunvth', pdb_name: 'CDB$ROOT', cpu_time: 45.2, elapsed_time: 52.3, executions: 1250,
+                    sql_text: 'SELECT o.*, c.customer_name FROM orders o JOIN customers c ON o.customer_id = c.id WHERE o.order_date > :1',
+                    buffer_gets: 125000, disk_reads: 2500, cpu_per_exec: 0.036, elapsed_per_exec: 0.042,
+                    cpu_impact: 'HIGH_CPU_IMPACT', io_impact: 'MEDIUM_IO_IMPACT', logical_reads_impact: 'HIGH_LOGICAL_READS'
+                },
+                { 
+                    sql_id: 'gx7b2w8mp3nkd', pdb_name: 'PDB1', cpu_time: 38.7, elapsed_time: 41.2, executions: 890,
+                    sql_text: 'UPDATE customer SET last_login = SYSDATE, login_count = login_count + 1 WHERE customer_id = :1',
+                    buffer_gets: 98000, disk_reads: 1800, cpu_per_exec: 0.043, elapsed_per_exec: 0.046,
+                    cpu_impact: 'MEDIUM_CPU_IMPACT', io_impact: 'MEDIUM_IO_IMPACT', logical_reads_impact: 'MEDIUM_LOGICAL_READS'
+                },
+                { 
+                    sql_id: '1xf9v5k2h8q7m', pdb_name: 'CDB$ROOT', cpu_time: 32.4, elapsed_time: 35.1, executions: 654,
+                    sql_text: 'INSERT INTO audit_log (action, user_id, timestamp, details) VALUES (:1, :2, :3, :4)',
+                    buffer_gets: 78000, disk_reads: 1200, cpu_per_exec: 0.050, elapsed_per_exec: 0.054,
+                    cpu_impact: 'MEDIUM_CPU_IMPACT', io_impact: 'LOW_IO_IMPACT', logical_reads_impact: 'MEDIUM_LOGICAL_READS'
+                },
+                { 
+                    sql_id: '9zc4n6y1p0wkg', pdb_name: 'PDB1', cpu_time: 28.8, elapsed_time: 31.5, executions: 432,
+                    sql_text: 'SELECT COUNT(*) FROM user_sessions WHERE status = \'ACTIVE\' AND last_activity > SYSDATE - 1/24',
+                    buffer_gets: 65000, disk_reads: 980, cpu_per_exec: 0.067, elapsed_per_exec: 0.073,
+                    cpu_impact: 'LOW_CPU_IMPACT', io_impact: 'LOW_IO_IMPACT', logical_reads_impact: 'LOW_LOGICAL_READS'
+                },
+                { 
+                    sql_id: 'q8s2j3f7b9xvt', pdb_name: 'CDB$ROOT', cpu_time: 24.1, elapsed_time: 27.3, executions: 765,
+                    sql_text: 'DELETE FROM temp_data WHERE created_date < SYSDATE - 7',
+                    buffer_gets: 52000, disk_reads: 840, cpu_per_exec: 0.032, elapsed_per_exec: 0.036,
+                    cpu_impact: 'LOW_CPU_IMPACT', io_impact: 'LOW_IO_IMPACT', logical_reads_impact: 'LOW_LOGICAL_READS'
+                }
+            ];
+            
+            // POLISHED: Enhanced tablespace data with 15+ tablespaces
+            rawData.tablespaces = [
+                { pdb_name: 'CDB$ROOT', tablespace_name: 'SYSTEM', total_mb: 5000, used_mb: 2800, free_mb: 2200, usage_percentage: 56, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'AUTO', contents: 'PERMANENT' },
+                { pdb_name: 'CDB$ROOT', tablespace_name: 'SYSAUX', total_mb: 3000, used_mb: 1900, free_mb: 1100, usage_percentage: 63, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'AUTO', contents: 'PERMANENT' },
+                { pdb_name: 'CDB$ROOT', tablespace_name: 'TEMP', total_mb: 2000, used_mb: 450, free_mb: 1550, usage_percentage: 23, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'MANUAL', contents: 'TEMPORARY' },
+                { pdb_name: 'CDB$ROOT', tablespace_name: 'UNDOTBS1', total_mb: 8000, used_mb: 2400, free_mb: 5600, usage_percentage: 30, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'MANUAL', contents: 'UNDO' },
+                { pdb_name: 'CDB$ROOT', tablespace_name: 'DATA01', total_mb: 100000, used_mb: 85600, free_mb: 14400, usage_percentage: 86, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'AUTO', contents: 'PERMANENT' },
+                { pdb_name: 'PDB1', tablespace_name: 'USERS', total_mb: 5000, used_mb: 4800, free_mb: 200, usage_percentage: 96, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'AUTO', contents: 'PERMANENT' },
+                { pdb_name: 'PDB1', tablespace_name: 'APP_DATA', total_mb: 25000, used_mb: 18750, free_mb: 6250, usage_percentage: 75, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'AUTO', contents: 'PERMANENT' },
+                { pdb_name: 'PDB1', tablespace_name: 'APP_INDEX', total_mb: 15000, used_mb: 11250, free_mb: 3750, usage_percentage: 75, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'AUTO', contents: 'PERMANENT' },
+                { pdb_name: 'PDB1', tablespace_name: 'TEMP_PDB1', total_mb: 3000, used_mb: 600, free_mb: 2400, usage_percentage: 20, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'MANUAL', contents: 'TEMPORARY' },
+                { pdb_name: 'PDB2', tablespace_name: 'USERS', total_mb: 4000, used_mb: 3600, free_mb: 400, usage_percentage: 90, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'AUTO', contents: 'PERMANENT' },
+                { pdb_name: 'PDB2', tablespace_name: 'REPORTS_DATA', total_mb: 20000, used_mb: 14000, free_mb: 6000, usage_percentage: 70, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'AUTO', contents: 'PERMANENT' },
+                { pdb_name: 'PDB2', tablespace_name: 'REPORTS_INDEX', total_mb: 12000, used_mb: 7800, free_mb: 4200, usage_percentage: 65, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'AUTO', contents: 'PERMANENT' },
+                { pdb_name: 'PDB2', tablespace_name: 'ARCHIVE_DATA', total_mb: 50000, used_mb: 32500, free_mb: 17500, usage_percentage: 65, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'AUTO', contents: 'PERMANENT' },
+                { pdb_name: 'PDB3', tablespace_name: 'USERS', total_mb: 3000, used_mb: 2580, free_mb: 420, usage_percentage: 86, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'AUTO', contents: 'PERMANENT' },
+                { pdb_name: 'PDB3', tablespace_name: 'TEST_DATA', total_mb: 10000, used_mb: 4200, free_mb: 5800, usage_percentage: 42, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'AUTO', contents: 'PERMANENT' },
+                { pdb_name: 'PDB3', tablespace_name: 'TEST_INDEX', total_mb: 5000, used_mb: 1800, free_mb: 3200, usage_percentage: 36, status: 'ONLINE', extent_management: 'LOCAL', segment_space_management: 'AUTO', contents: 'PERMANENT' }
+            ];
+            
+            // I/O metrics
+            ioMetrics = [
+                { file_type: 'DATAFILE_IO', file_name: '/u01/oradata/prod/system01.dbf', physical_reads: 45000, physical_writes: 12000, total_io: 57000, avg_read_time: 2.5, avg_write_time: 1.8 },
+                { file_type: 'DATAFILE_IO', file_name: '/u01/oradata/prod/data01.dbf', physical_reads: 125000, physical_writes: 45000, total_io: 170000, avg_read_time: 3.2, avg_write_time: 2.4 }
+            ];
+            
+            // Backup data
+            rawData.backupData = [
+                { start_time: '2025-10-04 02:00:00', backup_type: 'FULL', status: 'COMPLETED', duration_min: 120, size_mb: 15000 },
+                { start_time: '2025-10-03 02:00:00', backup_type: 'INCREMENTAL', status: 'COMPLETED', duration_min: 45, size_mb: 2500 }
+            ];
+            
+            // Alerts
+            rawData.alerts = [
+                { 
+                    timestamp: new Date().toISOString(), severity: 'critical',
+                    message: 'Tablespace PDB1.USERS is 96% full - immediate action required!', component: 'Storage Management',
+                    resolution: 'Add datafiles with: ALTER TABLESPACE USERS ADD DATAFILE SIZE 1G'
+                },
+                { 
+                    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), severity: 'warning',
+                    message: 'High CPU usage detected during peak hours (avg 78%)', component: 'Performance',
+                    resolution: 'Review top SQL queries and consider optimization'
+                }
+            ];
+            
+            // Recommendations
+            rawData.recommendations = [
+                { 
+                    category: 'Storage Management', priority: 'CRITICAL',
+                    finding: 'Tablespace PDB1.USERS is 96% full with only 200MB free space',
+                    recommendation: 'IMMEDIATE ACTION: Add datafiles or resize existing ones. Execute: ALTER TABLESPACE USERS ADD DATAFILE SIZE 1G;',
+                    type: 'SPACE_MANAGEMENT'
+                },
+                { 
+                    category: 'Performance Monitoring', priority: 'INFO',
+                    finding: 'FINAL POLISHED data collection completed with session monitoring',
+                    recommendation: 'All performance metrics COMPLETELY POLISHED with session filtering and enhanced tablespace monitoring.',
+                    type: 'MONITORING'
+                }
+            ];
+            
+            // Database info
+            databaseInfo = {
+                instance_name: 'PRODDB1', hostname: 'dbserver01.company.com', version: '19.18.0.0.0',
+                status: 'OPEN', database_status: 'ACTIVE', cdb: 'YES', database_role: 'PRIMARY',
+                uptime_days: 45.7, startup_time: '2025-08-19 14:30:00',
+                sga_target: '8589934592', pga_target: '2147483648', processes: '300'
+            };
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                event.target.style.display = 'none';
+            }
+        }
+    
+        // UPDATED: Enhanced tablespace processing - show ALL tablespaces (not limited to 5)
+        function loadTablespaceChart() {
+            if (!rawData.tablespaces || rawData.tablespaces.length === 0) {
+                document.getElementById('tablespaceDataStatus').style.display = 'block';
+                return;
+            }
+
+            // Process ALL tablespaces (no .slice limitation)
+            const processedData = rawData.tablespaces.map(ts => ({
+                name: `${ts.pdb}-${ts.tablespace}`,
+                usage: parseFloat(ts.usage_pct),
+                total: parseFloat(ts.total_mb),
+                used: parseFloat(ts.used_mb),
+                free: parseFloat(ts.free_mb),
+                status: ts.status
+            }));
+
+            // Sort by usage percentage descending to show critical ones first
+            processedData.sort((a, b) => b.usage - a.usage);
+
+            const ctx = document.getElementById('tablespaceChart').getContext('2d');
+
+            if (window.tablespaceChartInstance) {
+                window.tablespaceChartInstance.destroy();
+            }
+
+            window.tablespaceChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: processedData.map(ts => ts.name),
+                    datasets: [{
+                        label: 'Usage %',
+                        data: processedData.map(ts => ts.usage),
+                        backgroundColor: processedData.map(ts => {
+                            if (ts.usage > 95) return '#dc3545';  // Red for critical
+                            if (ts.usage > 85) return '#ffc107';  // Yellow for warning  
+                            return '#28a745';  // Green for healthy
+                        }),
+                        borderColor: '#333',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: {
+                                display: true,
+                                text: 'Usage Percentage (%)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Tablespace (PDB-Name)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const data = processedData[context.dataIndex];
+                                    return [
+                                        `Usage: ${data.usage.toFixed(1)}%`,
+                                        `Total: ${data.total.toFixed(0)} MB`,
+                                        `Used: ${data.used.toFixed(0)} MB`,
+                                        `Free: ${data.free.toFixed(0)} MB`,
+                                        `Status: ${data.status}`
+                                    ];
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            console.log(`UPDATED: Loaded ${processedData.length} tablespaces (ALL available)`);
+        }
+
+        // UPDATED: Enhanced performance overview - remove "filtered" terminology  
+        function loadPerformanceChart() {
+            if (!rawData.performance || rawData.performance.length === 0) {
+                document.getElementById('performanceDataStatus').style.display = 'block';
+                return;
+            }
+
+            // Process performance data - show overall session usage (not filtered)
+            const performanceData = rawData.performance.map(perf => ({
+                timestamp: new Date(perf.timestamp),
+                cpu_usage: parseFloat(perf.cpu_usage) || 0,
+                disk_io: parseFloat(perf.disk_io) || 0,
+                active_sessions: parseFloat(perf.active_sessions) || 0,  // Updated: Remove "filtered" terminology
+                memory_usage: parseFloat(perf.memory_usage) || 0
+            }));
+
+            const ctx = document.getElementById('performanceChart').getContext('2d');
+
+            if (window.performanceChartInstance) {
+                window.performanceChartInstance.destroy();
+            }
+
+            window.performanceChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: performanceData.map(p => p.timestamp.toLocaleTimeString()),
+                    datasets: [
+                        {
+                            label: 'CPU Usage (%)',
+                            data: performanceData.map(p => p.cpu_usage),
+                            borderColor: '#007bff',
+                            backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                            fill: false
+                        },
+                        {
+                            label: 'Disk I/O (%)',
+                            data: performanceData.map(p => p.disk_io),
+                            borderColor: '#28a745',
+                            backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                            fill: false
+                        },
+                        {
+                            label: 'Active Sessions',  // Updated: Removed "Filtered" 
+                            data: performanceData.map(p => p.active_sessions),
+                            borderColor: '#ffc107',
+                            backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'System Metrics'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true
+                        }
+                    }
+                }
+            });
+
+            console.log(`UPDATED: Loaded ${performanceData.length} performance data points with overall session metrics`);
+        }
+
+        // UPDATED: Enhanced SQL queries chart with more statistics
+        function loadSQLChart() {
+            if (!rawData.sql || rawData.sql.length === 0) {
+                document.getElementById('sqlDataStatus').style.display = 'block';
+                return;
+            }
+
+            // Enhanced processing with more resource statistics
+            const processedData = rawData.sql.map(sql => ({
+                sql_id: sql.sql_id,
+                pdb: sql.pdb || 'N/A',
+                cpu_time: parseFloat(sql.cpu_time) || 0,
+                elapsed_time: parseFloat(sql.elapsed_time) || 0,
+                executions: parseInt(sql.executions) || 0,
+                buffer_gets: parseInt(sql.buffer_gets) || 0,
+                disk_reads: parseInt(sql.disk_reads) || 0,
+                // Additional statistics from existing data
+                avg_cpu: parseFloat(sql.cpu_time) / Math.max(parseInt(sql.executions), 1),
+                avg_elapsed: parseFloat(sql.elapsed_time) / Math.max(parseInt(sql.executions), 1),
+                total_io: (parseInt(sql.buffer_gets) || 0) + (parseInt(sql.disk_reads) || 0),
+                sql_text: sql.sql_text ? sql.sql_text.substring(0, 50) + '...' : 'N/A'
+            }));
+
+            // Sort by total resource impact (CPU + I/O combined)
+            processedData.sort((a, b) => (b.cpu_time + b.total_io) - (a.cpu_time + a.total_io));
+
+            const ctx = document.getElementById('sqlChart').getContext('2d');
+
+            if (window.sqlChartInstance) {
+                window.sqlChartInstance.destroy();
+            }
+
+            window.sqlChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: processedData.slice(0, 15).map(sql => sql.sql_id),  // Show top 15
+                    datasets: [
+                        {
+                            label: 'CPU Time (s)',
+                            data: processedData.slice(0, 15).map(sql => sql.cpu_time),
+                            backgroundColor: 'rgba(255, 99, 132, 0.6)',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Total I/O Operations',
+                            data: processedData.slice(0, 15).map(sql => sql.total_io / 1000),  // Scale down for visibility
+                            backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Executions',
+                            data: processedData.slice(0, 15).map(sql => sql.executions),
+                            backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Resource Usage (CPU Time, I/O/1000, Executions)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'SQL ID'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const data = processedData[context.dataIndex];
+                                    return [
+                                        `SQL ID: ${data.sql_id}`,
+                                        `PDB: ${data.pdb}`,
+                                        `CPU Time: ${data.cpu_time.toFixed(2)}s`,
+                                        `Elapsed Time: ${data.elapsed_time.toFixed(2)}s`,
+                                        `Executions: ${data.executions}`,
+                                        `Buffer Gets: ${data.buffer_gets.toLocaleString()}`,
+                                        `Disk Reads: ${data.disk_reads.toLocaleString()}`,
+                                        `Avg CPU: ${data.avg_cpu.toFixed(3)}s`,
+                                        `SQL: ${data.sql_text}`
+                                    ];
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            console.log(`UPDATED: Enhanced SQL chart loaded with ${processedData.length} queries and additional statistics`);
+        }
+
+
+        // =====================================================
+        // ROBUST PARSER FOR BOTH SINGLE-LINE AND MULTI-LINE DATA FILES
+        // =====================================================
+
+        function processRawData(data) {
+            console.log('Processing data with robust format-agnostic parser...');
+            console.log('Data length:', data.length);
+
+            // Handle both single-line and multi-line formats
+            let normalizedData = data;
+
+            // If data contains literal \n strings, convert them to actual newlines
+            if (data.includes('\\n')) {
+                normalizedData = data.replace(/\\n/g, '\n');
+                console.log('Converted escaped newlines to actual newlines');
+            }
+
+            const lines = normalizedData.split('\n');
+            console.log('Total lines after split:', lines.length);
+
+            // Initialize data structures
+            rawData = {
+                performance: [],
+                connections: [],
+                waitEvents: [],
+                blockingSessions: [],
+                sqlQueries: [],
+                backups: [],
+                tablespaces: [],
+                ioStats: [],
+                alerts: [],
+                instanceInfo: [],
+                recommendations: []
+            };
+
+            let currentSection = null;
+            let dataRowsFound = 0;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+
+                // Detect section starts
+                if (line.includes('# START_SECTION:')) {
+                    const sectionMatch = line.match(/# START_SECTION:\s*(\w+)/);
+                    if (sectionMatch) {
+                        currentSection = sectionMatch[1].toLowerCase();
+                        console.log('Starting section:', currentSection);
+                        continue;
+                    }
+                }
+
+                // Alternative section detection for "Collecting" lines
+                if (line.includes('📊 Collecting:')) {
+                    if (line.includes('Enhanced SQL Resource Impact Analysis')) {
+                        currentSection = 'sql_queries';
+                    } else if (line.includes('ENHANCED Tablespace Analysis')) {
+                        currentSection = 'tablespace_usage';
+                    } else if (line.includes('I/O Performance Analysis')) {
+                        currentSection = 'io_stats';
+                    } else if (line.includes('Wait Events Analysis')) {
+                        currentSection = 'wait_events';
+                    } else if (line.includes('Blocking Sessions')) {
+                        currentSection = 'blocking_sessions';
+                    }
+                    console.log('Alternative section detection:', currentSection);
+                    continue;
+                }
+
+                // Detect section ends
+                if (line.includes('# END_SECTION:')) {
+                    currentSection = null;
+                    continue;
+                }
+
+                // Skip non-data lines
+                if (line.startsWith('#') || line.startsWith('📊') || line.includes('TIMESTAMP:') || line.includes('INSTANCE:')) {
+                    continue;
+                }
+
+                // Parse data lines
+                if (currentSection && line.includes('|')) {
+                    parseRobustDataLine(line, currentSection);
+                    dataRowsFound++;
+                }
+            }
+
+            console.log('Robust parsing completed. Data rows found:', dataRowsFound);
+            console.log('Final data structure:', rawData);
+
+            // Log section counts
+            console.log('Section summary:');
+            console.log('- SQL Queries:', rawData.sqlQueries.length);
+            console.log('- Tablespaces:', rawData.tablespaces.length);
+            console.log('- I/O Stats:', rawData.ioStats.length);
+            console.log('- Wait Events:', rawData.waitEvents.length);
+        }
+
+        function parseRobustDataLine(line, section) {
+            const parts = line.split('|');
+
+            try {
+                switch (section) {
+                    case 'sql_queries':
+                        if (parts.length >= 21) {
+                            rawData.sqlQueries.push({
+                                sql_id: parts[0] || '',
+                                con_id: parts[1] || '1',
+                                pdb_name: parts[2] || 'CDB$ROOT',
+                                sql_text: parts[3] || '',
+                                executions: parseInt(parts[4]) || 0,
+                                cpu_time: parseFloat(parts[5]) || 0,
+                                elapsed_time: parseFloat(parts[6]) || 0,
+                                buffer_gets: parseInt(parts[7]) || 0,
+                                disk_reads: parseInt(parts[8]) || 0,
+                                rows_processed: parseInt(parts[9]) || 0,
+                                plan_hash_value: parts[10] || '',
+                                cpu_per_exec: parseFloat(parts[11]) || 0,
+                                elapsed_per_exec: parseFloat(parts[12]) || 0,
+                                buffer_per_exec: parseFloat(parts[13]) || 0,
+                                disk_per_exec: parseFloat(parts[14]) || 0,
+                                rows_per_exec: parseFloat(parts[15]) || 0,
+                                cpu_impact: parts[16] || 'LOW_CPU_IMPACT',
+                                io_impact: parts[17] || 'LOW_IO_IMPACT',
+                                logical_reads_impact: parts[18] || 'LOW_LOGICAL_READS',
+                                elapsed_time_impact: parts[19] || 'LOW_ELAPSED_TIME',
+                                frequency_impact: parts[20] || 'LOW_FREQUENCY'
+                            });
+                            console.log('Parsed SQL query:', parts[0]);
+                        }
+                        break;
+
+                    case 'tablespace_usage':
+                        if (parts.length >= 11) {
+                            rawData.tablespaces.push({
+                                con_id: parts[0] || '1',
+                                pdb_name: parts[1] || 'CDB$ROOT',
+                                tablespace_name: parts[2] || '',
+                                total_size_mb: parseFloat(parts[3]) || 0,
+                                used_size_mb: parseFloat(parts[4]) || 0,
+                                free_size_mb: parseFloat(parts[5]) || 0,
+                                usage_percent: parseFloat(parts[6]) || 0,
+                                status: parts[7] || 'ONLINE',
+                                extent_management: parts[8] || 'LOCAL',
+                                segment_space_management: parts[9] || 'AUTO',
+                                contents: parts[10] || 'PERMANENT'
+                            });
+                            console.log('Parsed tablespace:', parts[2]);
+                        }
+                        break;
+
+                    case 'io_stats':
+                        if (parts.length >= 10) {
+                            rawData.ioStats.push({
+                                timestamp: parts[0] || '',
+                                instance_id: parts[1] || '1',
+                                file_type: parts[2] || '',
+                                file_id: parts[3] || '',
+                                file_name: parts[4] || '',
+                                phyrds: parseInt(parts[5]) || 0,
+                                phywrts: parseInt(parts[6]) || 0,
+                                total_io: parseInt(parts[7]) || 0,
+                                avg_read_time: parseFloat(parts[8]) || 0,
+                                avg_write_time: parseFloat(parts[9]) || 0
+                            });
+                            console.log('Parsed I/O file:', parts[4].substring(parts[4].lastIndexOf('/') + 1));
+                        }
+                        break;
+
+                    case 'wait_events':
+                        if (parts.length >= 7) {
+                            rawData.waitEvents.push({
+                                timestamp: parts[0] || '',
+                                instance_id: parts[1] || '1',
+                                event: parts[2] || '',
+                                wait_class: parts[3] || '',
+                                total_waits: parseInt(parts[4]) || 0,
+                                time_waited_ms: parseFloat(parts[5]) || 0,
+                                avg_wait_ms: parseFloat(parts[6]) || 0
+                            });
+                        }
+                        break;
+                }
+            } catch (error) {
+                console.warn(`Error parsing ${section} line:`, line, error);
+            }
+        }
+
+        // Enhanced tablespace table population
+        function populateTablespaceTable() {
+            console.log('Populating tablespace table with robust parser data...');
+
+            if (!rawData.tablespaces || rawData.tablespaces.length === 0) {
+                console.log('No tablespace data available');
+                const tablespaceTableBody = document.getElementById('tablespaceTableBody');
+                if (tablespaceTableBody) {
+                    tablespaceTableBody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 20px; color: #666;">No tablespace data available. Check data collection or file format.</td></tr>';
+                }
+                return;
+            }
+
+            const tablespaceTableBody = document.getElementById('tablespaceTableBody');
+            const tablespaceFilter = document.getElementById('tablespaceFilter');
+
+            if (!tablespaceTableBody) {
+                console.log('Tablespace table body not found');
+                return;
+            }
+
+            tablespaceTableBody.innerHTML = '';
+            const pdbSet = new Set();
+
+            console.log(`Processing ${rawData.tablespaces.length} tablespaces`);
+
+            rawData.tablespaces.forEach((ts, index) => {
+                const row = tablespaceTableBody.insertRow();
+
+                row.insertCell().textContent = ts.pdb_name;
+                row.insertCell().textContent = ts.tablespace_name;
+                row.insertCell().textContent = Math.round(ts.total_size_mb).toLocaleString();
+                row.insertCell().textContent = Math.round(ts.used_size_mb).toLocaleString();
+                row.insertCell().textContent = Math.round(ts.free_size_mb).toLocaleString();
+                row.insertCell().textContent = ts.usage_percent.toFixed(1) + '%';
+
+                // Status with color coding
+                const statusCell = row.insertCell();
+                let statusClass = 'success';
+                if (ts.usage_percent > 90) statusClass = 'critical';
+                else if (ts.usage_percent > 80) statusClass = 'warning';
+                statusCell.innerHTML = `<span class="metric-badge ${statusClass}">${ts.status}</span>`;
+
+                row.insertCell().textContent = ts.segment_space_management || ts.extent_management;
+                row.insertCell().textContent = ts.contents;
+
+                // Set data attributes for filtering
+                row.setAttribute('data-pdb', ts.pdb_name);
+                row.setAttribute('data-tablespace', ts.tablespace_name);
+
+                pdbSet.add(ts.pdb_name);
+            });
+
+            // Populate PDB filter dropdown
+            if (tablespaceFilter) {
+                while (tablespaceFilter.children.length > 1) {
+                    tablespaceFilter.removeChild(tablespaceFilter.lastChild);
+                }
+
+                Array.from(pdbSet).sort().forEach(pdb => {
+                    const option = document.createElement('option');
+                    option.value = pdb;
+                    option.textContent = pdb;
+                    tablespaceFilter.appendChild(option);
+                });
+            }
+
+            console.log(`Tablespace table populated with ${rawData.tablespaces.length} entries`);
+
+            // Hide the "No data" message
+            const noDataMsg = document.getElementById('tablespaceDataStatus');
+            if (noDataMsg) {
+                noDataMsg.style.display = 'none';
+            }
+        }
+
+        // Enhanced Top SQL population
+        function populateTopSQLOverviewTable() {
+            console.log('Populating top SQL table with robust parser data...');
+
+            if (!rawData.sqlQueries || rawData.sqlQueries.length === 0) {
+                console.log('No SQL query data available');
+                const topSqlTableBody = document.getElementById('topSqlOverviewTableBody');
+                if (topSqlTableBody) {
+                    topSqlTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: #666;">No SQL query data available. Check data collection or file format.</td></tr>';
+                }
+                return;
+            }
+
+            const topSqlTableBody = document.getElementById('topSqlOverviewTableBody');
+            if (!topSqlTableBody) {
+                console.log('Top SQL table body not found');
+                return;
+            }
+
+            topSqlTableBody.innerHTML = '';
+
+            // Sort by CPU time and show all available (should be 5 from collector)
+            const topSqlQueries = rawData.sqlQueries
+                .sort((a, b) => b.cpu_time - a.cpu_time);
+
+            console.log(`Displaying ${topSqlQueries.length} SQL queries`);
+
+            topSqlQueries.forEach((sql, index) => {
+                const row = topSqlTableBody.insertRow();
+
+                row.insertCell().textContent = index + 1;
+                row.insertCell().textContent = sql.sql_id;
+                row.insertCell().textContent = sql.pdb_name;
+                row.insertCell().textContent = sql.cpu_time.toFixed(2);
+                row.insertCell().textContent = sql.executions.toLocaleString();
+
+                // CPU Impact from collector data
+                const impactCell = row.insertCell();
+                let impactClass = 'success';
+                let impactText = 'LOW';
+                if (sql.cpu_impact === 'HIGH_CPU_IMPACT') {
+                    impactClass = 'critical';
+                    impactText = 'HIGH';
+                } else if (sql.cpu_impact === 'MEDIUM_CPU_IMPACT') {
+                    impactClass = 'warning';
+                    impactText = 'MEDIUM';
+                }
+                impactCell.innerHTML = `<span class="metric-badge ${impactClass}">${impactText}</span>`;
+
+                // SQL text (truncated)
+                const sqlTextCell = row.insertCell();
+                const truncatedText = sql.sql_text.length > 80 ? 
+                    sql.sql_text.substring(0, 80) + '...' : sql.sql_text;
+                sqlTextCell.textContent = truncatedText;
+                sqlTextCell.title = sql.sql_text;
+                sqlTextCell.style.maxWidth = '300px';
+                sqlTextCell.style.overflow = 'hidden';
+                sqlTextCell.style.textOverflow = 'ellipsis';
+                sqlTextCell.style.whiteSpace = 'nowrap';
+            });
+
+            console.log(`Top SQL table populated with ${topSqlQueries.length} entries`);
+        }
+
+        // Enhanced I/O filter population
+        function populateIOFilters() {
+            console.log('Populating I/O filters with robust parser data...');
+
+            const ioFilter = document.getElementById('ioFilter');
+            if (!ioFilter || !rawData.ioStats || rawData.ioStats.length === 0) {
+                console.log('I/O filter or data not available');
+                return;
+            }
+
+            const containerSet = new Set();
+
+            // Extract container names from file paths
+            rawData.ioStats.forEach(io => {
+                const fileName = io.file_name.toLowerCase();
+
+                if (fileName.includes('/pdb1/')) {
+                    containerSet.add('PDB1');
+                } else if (fileName.includes('/pdbseed/')) {
+                    containerSet.add('PDBSEED');
+                } else if (fileName.includes('pdb1')) {
+                    containerSet.add('PDB1');
+                } else if (fileName.includes('pdbseed')) {
+                    containerSet.add('PDBSEED');
+                } else {
+                    containerSet.add('CDB$ROOT');
+                }
+            });
+
+            // Clear existing options except first
+            while (ioFilter.children.length > 1) {
+                ioFilter.removeChild(ioFilter.lastChild);
+            }
+
+            Array.from(containerSet).sort().forEach(container => {
+                const option = document.createElement('option');
+                option.value = container;
+                option.textContent = container;
+                ioFilter.appendChild(option);
+            });
+
+            console.log(`I/O filter populated with: ${Array.from(containerSet).join(', ')}`);
+        }
+
+        // Function to filter tablespace table by PDB
+        function filterTablespaceByPDB(pdbFilter) {
+            const table = document.getElementById('tablespaceTable');
+            if (!table) return;
+
+            const rows = Array.from(table.getElementsByTagName('tr'));
+            let visibleCount = 0;
+
+            rows.slice(1).forEach(row => {
+                const pdbData = row.getAttribute('data-pdb');
+                if (!pdbFilter || pdbFilter === '' || pdbData === pdbFilter) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+
+            console.log(`Filtered tablespace table: ${visibleCount} visible rows`);
+        }
+
+        // Enhanced I/O container filtering
+        function filterIOByContainer(containerFilter) {
+            console.log('Filtering I/O by container:', containerFilter);
+
+            const table = document.getElementById('ioTable');
+            if (!table) return;
+
+            const rows = Array.from(table.getElementsByTagName('tr'));
+            let visibleCount = 0;
+
+            rows.slice(1).forEach(row => {
+                const fileName = row.cells[1].textContent.toLowerCase();
+                let showRow = true;
+
+                if (containerFilter && containerFilter !== '') {
+                    const filter = containerFilter.toLowerCase();
+                    if (filter === 'pdb1') {
+                        showRow = fileName.includes('pdb1');
+                    } else if (filter === 'pdbseed') {
+                        showRow = fileName.includes('pdbseed');
+                    } else if (filter === 'cdb$root') {
+                        showRow = !fileName.includes('pdb1') && !fileName.includes('pdbseed');
+                    } else {
+                        showRow = fileName.includes(filter);
+                    }
+                }
+
+                row.style.display = showRow ? '' : 'none';
+                if (showRow) visibleCount++;
+            });
+
+            console.log(`I/O filter applied: ${visibleCount} visible rows`);
+        }
+
+
+        // Final robust loadData function 
+        const originalLoadDataFunc = window.loadData;
+        window.loadData = function() {
+            console.log('Robust enhanced loadData called...');
+
+            // Call original function first
+            if (originalLoadDataFunc) {
+                originalLoadDataFunc();
+            }
+
+            // Add delay to ensure data is processed
+            setTimeout(() => {
+                console.log('Calling robust enhancement functions...');
+                populateTablespaceTable();
+                populateTopSQLOverviewTable();
+                populateIOFilters();
+            }, 500);
+        };
+    </script>
+</body>
+</html>
