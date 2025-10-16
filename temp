@@ -1,0 +1,7 @@
+# Open file descriptor 9 pointing to the lock file
+exec 9>"${LOCK_FILE}"
+# Try to acquire an exclusive lock without waiting (-n)
+if ! flock -n 9; then
+    echo "ERROR: Another backup is in progress for ${INSTANCE_NAME}" >&2
+    exit 1
+fi
