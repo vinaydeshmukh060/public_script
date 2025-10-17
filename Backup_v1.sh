@@ -253,6 +253,32 @@ echo "Database role detected: PRIMARY"
 echo "✓ Database role is PRIMARY - proceeding with backup"
 echo ""
 
+
+echo "Checking database Name"
+DB_NAME_VAR1=$(sqlplus -s / as sysdba <<EOF
+SET PAGESIZE 0 FEEDBACK OFF VERIFY OFF HEADING OFF ECHO OFF
+SELECT NAME FROM v\$database;
+EXIT;
+EOF
+)
+echo ""
+echo "Database Name: ${DB_NAME_VAR1}" >&2
+echo ""
+
+################################################################################
+# Prepare final log dir structure
+################################################################################
+
+# Correct concatenation with DB name under base_dir
+base_dir="${base_dir}/${DB_NAME_VAR1}"
+
+# Now construct backup subdirectories properly
+backup_L0_dir="${base_dir}/${backup_L0_dir}"
+backup_L1_dir="${base_dir}/${backup_L1_dir}"
+backup_Arch_dir="${base_dir}/${backup_Arch_dir}"
+logs_dir="${base_dir}/${logs_dir}"
+
+
 ################################################################################
 # Setup logs and temp files
 ################################################################################
@@ -317,8 +343,10 @@ L0)
     done
     [ "${COMPRESSION}" = "Y" ] && echo " CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels} BACKUP TYPE TO COMPRESSED BACKUPSET;" || echo " CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels};"
     echo " BACKUP AS BACKUPSET INCREMENTAL LEVEL 0"
-    echo " FORMAT '${backup_L0_dir}/${backup_date}/${INSTANCE_NAME}_L0_%U'"
-    echo " DATABASE PLUS ARCHIVELOG;"
+    echo " FORMAT '${backup_L0_dir}/${backup_date}/${INSTANCE_NAME}_L0_%U' DATABASE;"
+    echo " BACKUP AS BACKUPSET FORMAT '${backup_Arch_dir}/${backup_date}/${INSTANCE_NAME}_ARCH_%U' ARCHIVELOG ALL;"
+	echo " BACKUP AS BACKUPSET FORMAT '${backup_L0_dir}/${backup_date}/${INSTANCE_NAME}_CTL_%U' CURRENT CONTROLFILE TAG '${INSTANCE_NAME}_CTL_BKP';"
+	echo " BACKUP AS BACKUPSET FORMAT '${backup_L0_dir}/${backup_date}/${INSTANCE_NAME}_SPFILE_%U' SPFILE TAG '${INSTANCE_NAME}_SPFILE_BKP';"
     for i in $(seq 1 ${channels}); do
         echo " RELEASE CHANNEL c${i};"
     done
@@ -336,8 +364,10 @@ L1)
     done
     [ "${COMPRESSION}" = "Y" ] && echo " CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels} BACKUP TYPE TO COMPRESSED BACKUPSET;" || echo " CONFIGURE DEVICE TYPE DISK PARALLELISM ${channels};"
     echo " BACKUP AS BACKUPSET INCREMENTAL LEVEL 1"
-    echo " FORMAT '${backup_L1_dir}/${backup_date}/${INSTANCE_NAME}_L1_%U'"
-    echo " DATABASE PLUS ARCHIVELOG;"
+    echo " FORMAT '${backup_L1_dir}/${backup_date}/${INSTANCE_NAME}_L1_%U' DATABASE;"
+    echo " BACKUP AS BACKUPSET FORMAT '${backup_Arch_dir}/${backup_date}/${INSTANCE_NAME}_ARCH_%U' ARCHIVELOG ALL;"
+	echo " BACKUP AS BACKUPSET FORMAT '${backup_L1_dir}/${backup_date}/${INSTANCE_NAME}_CTL_%U' CURRENT CONTROLFILE TAG '${INSTANCE_NAME}_CTL_BKP';"
+	echo " BACKUP AS BACKUPSET FORMAT '${backup_L1_dir}/${backup_date}/${INSTANCE_NAME}_SPFILE_%U' SPFILE TAG '${INSTANCE_NAME}_SPFILE_BKP';"
     for i in $(seq 1 ${channels}); do
         echo " RELEASE CHANNEL c${i};"
     done
