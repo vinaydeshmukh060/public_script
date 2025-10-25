@@ -704,21 +704,35 @@ textarea.form-control::placeholder {
                     </div>
 
                     <!-- Pre-checks -->
-                    <div class="form-group">
-                        <label class="form-label" for="preChecks">
+                    <div class="database-fields">
+                        <h3 class="field-group-title">
                             <span class="label-text">Pre-requisites &amp; Validation</span><span class="required">*</span>
                             <span class="label-help">→ Pre-Implementation Checks</span>
-                        </label>
-                        <textarea class="form-control" id="preChecks" rows="6" required placeholder="Enter all pre-implementation checks (you can use bullets, numbers, or any format you prefer)"></textarea>
+                        </h3>
+                        
+                        <div id="preChecksContainer">
+                            <!-- Pre-check rows will be added dynamically -->
+                        </div>
+
+                        <button type="button" class="btn btn--secondary" id="addPreCheckBtn" style="margin-top: var(--space-12);">
+                            <span class="btn-icon">+</span> Add Pre-Check
+                        </button>
                     </div>
 
                     <!-- Implementation Steps -->
-                    <div class="form-group">
-                        <label class="form-label" for="implementationSteps">
+                    <div class="database-fields">
+                        <h3 class="field-group-title">
                             <span class="label-text">Implementation Steps</span><span class="required">*</span>
                             <span class="label-help">→ Step-by-Step Execution Details</span>
-                        </label>
-                        <textarea class="form-control" id="implementationSteps" rows="8" required placeholder="Enter all implementation steps (format as you wish - the content will appear exactly as you type it)"></textarea>
+                        </h3>
+                        
+                        <div id="implementationStepsContainer">
+                            <!-- Implementation step rows will be added dynamically -->
+                        </div>
+
+                        <button type="button" class="btn btn--secondary" id="addStepBtn" style="margin-top: var(--space-12);">
+                            <span class="btn-icon">+</span> Add Step
+                        </button>
                     </div>
 
                     <!-- Validation Steps -->
@@ -845,11 +859,21 @@ textarea.form-control::placeholder {
 
         let generatedNotes = '';
         let databaseCounter = 0;
+        let preCheckCounter = 0;
+        let stepCounter = 0;
         const databases = [];
 
-        // Initialize with one database row
+        // Initialize with one database row, pre-check, and step
         function initializeDatabases() {
             addDatabaseRow();
+        }
+
+        function initializePreChecks() {
+            addPreCheckRow();
+        }
+
+        function initializeSteps() {
+            addStepRow();
         }
 
         // Add a new database row
@@ -928,8 +952,128 @@ textarea.form-control::placeholder {
         // Make removeDatabaseRow available globally
         window.removeDatabaseRow = removeDatabaseRow;
 
+        // Add a new pre-check row
+        function addPreCheckRow() {
+            preCheckCounter++;
+            const container = document.getElementById('preChecksContainer');
+            
+            const row = document.createElement('div');
+            row.className = 'database-row';
+            row.dataset.preCheckId = preCheckCounter;
+            
+            row.innerHTML = `
+                <div class="form-group" style="flex: 1;">
+                    <label class="form-label" for="preCheck${preCheckCounter}">
+                        <span class="label-text">Pre-Check ${preCheckCounter}</span><span class="required">*</span>
+                    </label>
+                    <textarea class="form-control pre-check-input" id="preCheck${preCheckCounter}" rows="2" required placeholder="Enter pre-implementation check"></textarea>
+                </div>
+                
+                <button type="button" class="btn-remove" onclick="removePreCheckRow(${preCheckCounter})">
+                    <span class="btn-icon">×</span> Remove
+                </button>
+            `;
+            
+            container.appendChild(row);
+            updatePreCheckButtons();
+        }
+
+        // Remove a pre-check row
+        function removePreCheckRow(preCheckId) {
+            const container = document.getElementById('preChecksContainer');
+            const rows = container.querySelectorAll('.database-row');
+            
+            if (rows.length > 1) {
+                const row = container.querySelector(`[data-pre-check-id="${preCheckId}"]`);
+                if (row) {
+                    row.remove();
+                    updatePreCheckButtons();
+                }
+            }
+        }
+
+        // Update pre-check remove button states
+        function updatePreCheckButtons() {
+            const container = document.getElementById('preChecksContainer');
+            const rows = container.querySelectorAll('.database-row');
+            const removeButtons = container.querySelectorAll('.btn-remove');
+            
+            removeButtons.forEach(button => {
+                if (rows.length <= 1) {
+                    button.disabled = true;
+                } else {
+                    button.disabled = false;
+                }
+            });
+        }
+
+        // Add a new implementation step row
+        function addStepRow() {
+            stepCounter++;
+            const container = document.getElementById('implementationStepsContainer');
+            
+            const row = document.createElement('div');
+            row.className = 'database-row';
+            row.dataset.stepId = stepCounter;
+            
+            row.innerHTML = `
+                <div class="form-group" style="flex: 1;">
+                    <label class="form-label" for="step${stepCounter}">
+                        <span class="label-text">Step ${stepCounter}</span><span class="required">*</span>
+                    </label>
+                    <textarea class="form-control step-input" id="step${stepCounter}" rows="3" required placeholder="Enter implementation step"></textarea>
+                </div>
+                
+                <button type="button" class="btn-remove" onclick="removeStepRow(${stepCounter})">
+                    <span class="btn-icon">×</span> Remove
+                </button>
+            `;
+            
+            container.appendChild(row);
+            updateStepButtons();
+        }
+
+        // Remove a step row
+        function removeStepRow(stepId) {
+            const container = document.getElementById('implementationStepsContainer');
+            const rows = container.querySelectorAll('.database-row');
+            
+            if (rows.length > 1) {
+                const row = container.querySelector(`[data-step-id="${stepId}"]`);
+                if (row) {
+                    row.remove();
+                    updateStepButtons();
+                }
+            }
+        }
+
+        // Update step remove button states
+        function updateStepButtons() {
+            const container = document.getElementById('implementationStepsContainer');
+            const rows = container.querySelectorAll('.database-row');
+            const removeButtons = container.querySelectorAll('.btn-remove');
+            
+            removeButtons.forEach(button => {
+                if (rows.length <= 1) {
+                    button.disabled = true;
+                } else {
+                    button.disabled = false;
+                }
+            });
+        }
+
+        // Make functions available globally
+        window.removePreCheckRow = removePreCheckRow;
+        window.removeStepRow = removeStepRow;
+
         // Add database button handler
         document.getElementById('addDatabaseBtn').addEventListener('click', addDatabaseRow);
+
+        // Add pre-check button handler
+        document.getElementById('addPreCheckBtn').addEventListener('click', addPreCheckRow);
+
+        // Add step button handler
+        document.getElementById('addStepBtn').addEventListener('click', addStepRow);
 
         // Handle implementation type change
         implementationType.addEventListener('change', function() {
@@ -1017,13 +1161,23 @@ textarea.form-control::placeholder {
             notes += '-'.repeat(80) + '\n';
             notes += '2. PRE-CHECKS\n';
             notes += '-'.repeat(80) + '\n';
-            notes += formatTextContent(formData.preChecks) + '\n\n';
+            if (formData.preChecks && formData.preChecks.length > 0) {
+                formData.preChecks.forEach(check => {
+                    notes += `- ${check}\n`;
+                });
+            }
+            notes += '\n';
 
             // Implementation Steps
             notes += '-'.repeat(80) + '\n';
             notes += '3. IMPLEMENTATION STEPS\n';
             notes += '-'.repeat(80) + '\n';
-            notes += formatTextContent(formData.implementationSteps) + '\n\n';
+            if (formData.implementationSteps && formData.implementationSteps.length > 0) {
+                formData.implementationSteps.forEach((step, index) => {
+                    notes += `Step ${index + 1}: ${step}\n`;
+                });
+            }
+            notes += '\n';
 
             // Validation
             notes += '-'.repeat(80) + '\n';
@@ -1083,6 +1237,44 @@ textarea.form-control::placeholder {
                 return;
             }
             
+            // Collect pre-check information
+            const preChecksContainer = document.getElementById('preChecksContainer');
+            const preCheckRows = preChecksContainer.querySelectorAll('.database-row');
+            const preChecks = [];
+            
+            let hasEmptyPreChecks = false;
+            preCheckRows.forEach(row => {
+                const textarea = row.querySelector('.pre-check-input');
+                if (!textarea.value.trim()) {
+                    hasEmptyPreChecks = true;
+                }
+                preChecks.push(textarea.value.trim());
+            });
+            
+            if (hasEmptyPreChecks) {
+                alert('Please fill in all pre-check fields.');
+                return;
+            }
+            
+            // Collect implementation steps
+            const stepsContainer = document.getElementById('implementationStepsContainer');
+            const stepRows = stepsContainer.querySelectorAll('.database-row');
+            const implementationSteps = [];
+            
+            let hasEmptySteps = false;
+            stepRows.forEach(row => {
+                const textarea = row.querySelector('.step-input');
+                if (!textarea.value.trim()) {
+                    hasEmptySteps = true;
+                }
+                implementationSteps.push(textarea.value.trim());
+            });
+            
+            if (hasEmptySteps) {
+                alert('Please fill in all implementation step fields.');
+                return;
+            }
+            
             // Collect form data
             const formData = {
                 implementationType: document.getElementById('implementationType').value,
@@ -1090,8 +1282,8 @@ textarea.form-control::placeholder {
                 environment: document.getElementById('environment').value,
                 databases: databases,
                 summary: document.getElementById('summary').value,
-                preChecks: document.getElementById('preChecks').value,
-                implementationSteps: document.getElementById('implementationSteps').value,
+                preChecks: preChecks,
+                implementationSteps: implementationSteps,
                 validation: document.getElementById('validation').value,
                 rollback: document.getElementById('rollback').value,
                 includeKnownIssues: includeKnownIssuesCheckbox.checked,
@@ -1155,8 +1347,10 @@ textarea.form-control::placeholder {
             URL.revokeObjectURL(url);
         });
 
-        // Initialize the form with one database row on page load
+        // Initialize the form with one database row, pre-check, and step on page load
         initializeDatabases();
+        initializePreChecks();
+        initializeSteps();
     </script>
 </body>
 </html>
