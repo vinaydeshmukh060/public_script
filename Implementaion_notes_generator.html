@@ -6,801 +6,1021 @@
     <title>Implementation Notes Generator</title>
     <style>
         :root {
-            --color-cream-50: rgba(252, 252, 249, 1);
-            --color-cream-100: rgba(255, 255, 253, 1);
-            --color-slate-900: rgba(19, 52, 59, 1);
-            --color-slate-500: rgba(98, 108, 113, 1);
-            --color-teal-500: rgba(33, 128, 141, 1);
-            --color-teal-600: rgba(29, 116, 128, 1);
-            --color-brown-600-rgb: 94, 82, 64;
-            --color-teal-500-rgb: 33, 128, 141;
-            --color-background: var(--color-cream-50);
-            --color-surface: var(--color-cream-100);
-            --color-text: var(--color-slate-900);
-            --color-text-secondary: var(--color-slate-500);
-            --color-primary: var(--color-teal-500);
-            --color-primary-hover: var(--color-teal-600);
-            --color-border: rgba(var(--color-brown-600-rgb), 0.2);
-            --color-card-border: rgba(var(--color-brown-600-rgb), 0.12);
-            --font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            --font-family-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-            --space-8: 8px;
-            --space-12: 12px;
-            --space-16: 16px;
-            --space-24: 24px;
-            --radius-base: 8px;
-            --radius-lg: 12px;
-        }
+  --color-white: rgba(255, 255, 255, 1);
+  --color-black: rgba(0, 0, 0, 1);
+  --color-cream-50: rgba(252, 252, 249, 1);
+  --color-cream-100: rgba(255, 255, 253, 1);
+  --color-gray-200: rgba(245, 245, 245, 1);
+  --color-gray-300: rgba(167, 169, 169, 1);
+  --color-gray-400: rgba(119, 124, 124, 1);
+  --color-slate-500: rgba(98, 108, 113, 1);
+  --color-brown-600: rgba(94, 82, 64, 1);
+  --color-charcoal-700: rgba(31, 33, 33, 1);
+  --color-charcoal-800: rgba(38, 40, 40, 1);
+  --color-slate-900: rgba(19, 52, 59, 1);
+  --color-teal-300: rgba(50, 184, 198, 1);
+  --color-teal-400: rgba(45, 166, 178, 1);
+  --color-teal-500: rgba(33, 128, 141, 1);
+  --color-teal-600: rgba(29, 116, 128, 1);
+  --color-teal-700: rgba(26, 104, 115, 1);
+  --color-teal-800: rgba(41, 150, 161, 1);
+  --color-red-400: rgba(255, 84, 89, 1);
+  --color-red-500: rgba(192, 21, 47, 1);
+  --color-orange-400: rgba(230, 129, 97, 1);
+  --color-orange-500: rgba(168, 75, 47, 1);
+  --color-brown-600-rgb: 94, 82, 64;
+  --color-teal-500-rgb: 33, 128, 141;
+  --color-slate-900-rgb: 19, 52, 59;
+  --color-slate-500-rgb: 98, 108, 113;
+  --color-red-500-rgb: 192, 21, 47;
+  --color-red-400-rgb: 255, 84, 89;
+  --color-orange-500-rgb: 168, 75, 47;
+  --color-orange-400-rgb: 230, 129, 97;
+  --color-bg-1: rgba(59, 130, 246, 0.08);
+  --color-bg-2: rgba(245, 158, 11, 0.08);
+  --color-bg-3: rgba(34, 197, 94, 0.08);
+  --color-bg-4: rgba(239, 68, 68, 0.08);
+  --color-bg-5: rgba(147, 51, 234, 0.08);
+  --color-bg-6: rgba(249, 115, 22, 0.08);
+  --color-bg-7: rgba(236, 72, 153, 0.08);
+  --color-bg-8: rgba(6, 182, 212, 0.08);
+  --color-background: var(--color-cream-50);
+  --color-surface: var(--color-cream-100);
+  --color-text: var(--color-slate-900);
+  --color-text-secondary: var(--color-slate-500);
+  --color-primary: var(--color-teal-500);
+  --color-primary-hover: var(--color-teal-600);
+  --color-primary-active: var(--color-teal-700);
+  --color-secondary: rgba(var(--color-brown-600-rgb), 0.12);
+  --color-secondary-hover: rgba(var(--color-brown-600-rgb), 0.2);
+  --color-secondary-active: rgba(var(--color-brown-600-rgb), 0.25);
+  --color-border: rgba(var(--color-brown-600-rgb), 0.2);
+  --color-btn-primary-text: var(--color-cream-50);
+  --color-card-border: rgba(var(--color-brown-600-rgb), 0.12);
+  --color-card-border-inner: rgba(var(--color-brown-600-rgb), 0.12);
+  --color-error: var(--color-red-500);
+  --color-success: var(--color-teal-500);
+  --color-warning: var(--color-orange-500);
+  --color-info: var(--color-slate-500);
+  --color-focus-ring: rgba(var(--color-teal-500-rgb), 0.4);
+  --color-select-caret: rgba(var(--color-slate-900-rgb), 0.8);
+  --focus-ring: 0 0 0 3px var(--color-focus-ring);
+  --focus-outline: 2px solid var(--color-primary);
+  --status-bg-opacity: 0.15;
+  --status-border-opacity: 0.25;
+  --select-caret-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23134252' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  --select-caret-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23f5f5f5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  --color-success-rgb: 33, 128, 141;
+  --color-error-rgb: 192, 21, 47;
+  --color-warning-rgb: 168, 75, 47;
+  --color-info-rgb: 98, 108, 113;
+  --font-family-base: "FKGroteskNeue", "Geist", "Inter", -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-family-mono: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo,
+    Monaco, Consolas, monospace;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 14px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 20px;
+  --font-size-3xl: 24px;
+  --font-size-4xl: 30px;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 550;
+  --font-weight-bold: 600;
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+  --letter-spacing-tight: -0.01em;
+  --space-0: 0;
+  --space-1: 1px;
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-6: 6px;
+  --space-8: 8px;
+  --space-10: 10px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-20: 20px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --radius-sm: 6px;
+  --radius-base: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.02);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.04),
+    0 2px 4px -1px rgba(0, 0, 0, 0.02);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.04),
+    0 4px 6px -2px rgba(0, 0, 0, 0.02);
+  --shadow-inset-sm: inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.03);
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+  --container-sm: 640px;
+  --container-md: 768px;
+  --container-lg: 1024px;
+  --container-xl: 1280px;
+}
 
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --color-charcoal-700: rgba(31, 33, 33, 1);
-                --color-charcoal-800: rgba(38, 40, 40, 1);
-                --color-gray-200: rgba(245, 245, 245, 1);
-                --color-gray-300: rgba(167, 169, 169, 1);
-                --color-gray-400-rgb: 119, 124, 124;
-                --color-teal-300: rgba(50, 184, 198, 1);
-                --color-teal-300-rgb: 50, 184, 198;
-                --color-background: var(--color-charcoal-700);
-                --color-surface: var(--color-charcoal-800);
-                --color-text: var(--color-gray-200);
-                --color-text-secondary: rgba(167, 169, 169, 0.7);
-                --color-primary: var(--color-teal-300);
-                --color-border: rgba(var(--color-gray-400-rgb), 0.3);
-                --color-card-border: rgba(var(--color-gray-400-rgb), 0.2);
-            }
-        }
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-gray-400-rgb: 119, 124, 124;
+    --color-teal-300-rgb: 50, 184, 198;
+    --color-gray-300-rgb: 167, 169, 169;
+    --color-gray-200-rgb: 245, 245, 245;
+    --color-bg-1: rgba(29, 78, 216, 0.15);
+    --color-bg-2: rgba(180, 83, 9, 0.15);
+    --color-bg-3: rgba(21, 128, 61, 0.15);
+    --color-bg-4: rgba(185, 28, 28, 0.15);
+    --color-bg-5: rgba(107, 33, 168, 0.15);
+    --color-bg-6: rgba(194, 65, 12, 0.15);
+    --color-bg-7: rgba(190, 24, 93, 0.15);
+    --color-bg-8: rgba(8, 145, 178, 0.15);
+    --color-background: var(--color-charcoal-700);
+    --color-surface: var(--color-charcoal-800);
+    --color-text: var(--color-gray-200);
+    --color-text-secondary: rgba(var(--color-gray-300-rgb), 0.7);
+    --color-primary: var(--color-teal-300);
+    --color-primary-hover: var(--color-teal-400);
+    --color-primary-active: var(--color-teal-800);
+    --color-secondary: rgba(var(--color-gray-400-rgb), 0.15);
+    --color-secondary-hover: rgba(var(--color-gray-400-rgb), 0.25);
+    --color-secondary-active: rgba(var(--color-gray-400-rgb), 0.3);
+    --color-border: rgba(var(--color-gray-400-rgb), 0.3);
+    --color-error: var(--color-red-400);
+    --color-success: var(--color-teal-300);
+    --color-warning: var(--color-orange-400);
+    --color-info: var(--color-gray-300);
+    --color-focus-ring: rgba(var(--color-teal-300-rgb), 0.4);
+    --color-btn-primary-text: var(--color-slate-900);
+    --color-card-border: rgba(var(--color-gray-400-rgb), 0.2);
+    --color-card-border-inner: rgba(var(--color-gray-400-rgb), 0.15);
+    --shadow-inset-sm: inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+    --button-border-secondary: rgba(var(--color-gray-400-rgb), 0.2);
+    --color-border-secondary: rgba(var(--color-gray-400-rgb), 0.2);
+    --color-select-caret: rgba(var(--color-gray-200-rgb), 0.8);
+    --color-success-rgb: var(--color-teal-300-rgb);
+    --color-error-rgb: var(--color-red-400-rgb);
+    --color-warning-rgb: var(--color-orange-400-rgb);
+    --color-info-rgb: var(--color-gray-300-rgb);
+  }
+}
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+@font-face {
+  font-family: 'FKGroteskNeue';
+  src: url('https://r2cdn.perplexity.ai/fonts/FKGroteskNeue.woff2')
+    format('woff2');
+}
 
-        body {
-            font-family: var(--font-family-base);
-            background: var(--color-background);
-            color: var(--color-text);
-            line-height: 1.6;
-            padding: var(--space-24);
-        }
+html {
+  font-size: var(--font-size-base);
+  font-family: var(--font-family-base);
+  line-height: var(--line-height-normal);
+  color: var(--color-text);
+  background-color: var(--color-background);
+  -webkit-font-smoothing: antialiased;
+  box-sizing: border-box;
+}
 
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-        }
+body {
+  margin: 0;
+  padding: var(--space-24);
+}
 
-        h1 {
-            font-size: 28px;
-            margin-bottom: var(--space-24);
-            color: var(--color-text);
-        }
+*,
+*::before,
+*::after {
+  box-sizing: inherit;
+}
 
-        .card {
-            background: var(--color-surface);
-            border: 1px solid var(--color-card-border);
-            border-radius: var(--radius-lg);
-            padding: var(--space-24);
-            margin-bottom: var(--space-16);
-        }
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
 
-        .form-group {
-            margin-bottom: var(--space-16);
-        }
+.header {
+  text-align: center;
+  margin-bottom: var(--space-32);
+}
 
-        label {
-            display: block;
-            margin-bottom: var(--space-8);
-            font-weight: 500;
-            font-size: 14px;
-        }
+.header h1 {
+  font-size: var(--font-size-4xl);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--space-8) 0;
+  color: var(--color-text);
+}
 
-        input, select, textarea {
-            width: 100%;
-            padding: var(--space-12);
-            border: 1px solid var(--color-border);
-            border-radius: var(--radius-base);
-            background: var(--color-background);
-            color: var(--color-text);
-            font-family: var(--font-family-base);
-            font-size: 14px;
-        }
+.header p {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-lg);
+  margin: 0;
+}
 
-        textarea {
-            min-height: 100px;
-            resize: vertical;
-            font-family: var(--font-family-mono);
-        }
+.main-content {
+  display: flex;
+  gap: var(--space-24);
+  flex-wrap: wrap;
+}
 
-        .btn {
-            padding: var(--space-12) var(--space-24);
-            background: var(--color-primary);
-            color: white;
-            border: none;
-            border-radius: var(--radius-base);
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            margin-right: var(--space-8);
-            transition: background 0.2s;
-        }
+.form-section {
+  flex: 1;
+  min-width: 400px;
+  background-color: var(--color-surface);
+  padding: var(--space-24);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-card-border);
+  box-shadow: var(--shadow-sm);
+}
 
-        .btn:hover {
-            background: var(--color-primary-hover);
-        }
+.output-section {
+  flex: 1;
+  min-width: 400px;
+  background-color: var(--color-surface);
+  padding: var(--space-24);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-card-border);
+  box-shadow: var(--shadow-sm);
+}
 
-        .btn-secondary {
-            background: rgba(var(--color-brown-600-rgb), 0.12);
-            color: var(--color-text);
-        }
+.section-title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--space-20) 0;
+  color: var(--color-text);
+}
 
-        .btn-secondary:hover {
-            background: rgba(var(--color-brown-600-rgb), 0.2);
-        }
+.form-group {
+  margin-bottom: var(--space-20);
+}
 
-        .output {
-            background: var(--color-background);
-            border: 1px solid var(--color-border);
-            border-radius: var(--radius-base);
-            padding: var(--space-16);
-            font-family: var(--font-family-mono);
-            font-size: 13px;
-            white-space: pre-wrap;
-            max-height: 500px;
-            overflow-y: auto;
-        }
+.form-label {
+  display: block;
+  margin-bottom: var(--space-8);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+}
 
-        .button-group {
-            display: flex;
-            gap: var(--space-8);
-            margin-top: var(--space-16);
-        }
+.required {
+  color: var(--color-error);
+  margin-left: var(--space-4);
+}
 
-        .section-header {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: var(--space-16);
-            padding-bottom: var(--space-8);
-            border-bottom: 2px solid var(--color-border);
-        }
+.form-control {
+  display: block;
+  width: 100%;
+  padding: var(--space-10) var(--space-12);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  color: var(--color-text);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-base);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+  font-family: var(--font-family-base);
+}
 
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: var(--space-16);
-        }
+select.form-control {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: var(--select-caret-light);
+  background-repeat: no-repeat;
+  background-position: right var(--space-12) center;
+  background-size: 16px;
+  padding-right: var(--space-32);
+}
 
-        @media (max-width: 768px) {
-            .grid {
-                grid-template-columns: 1fr;
-            }
-        }
+@media (prefers-color-scheme: dark) {
+  select.form-control {
+    background-image: var(--select-caret-dark);
+  }
+}
 
-        .step-item {
-            display: flex;
-            gap: var(--space-12);
-            margin-bottom: var(--space-12);
-            align-items: flex-start;
-        }
+textarea.form-control {
+  resize: vertical;
+  min-height: 100px;
+}
 
-        .step-number {
-            background: var(--color-primary);
-            color: white;
-            width: 28px;
-            height: 28px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-            font-weight: 600;
-            flex-shrink: 0;
-            margin-top: 12px;
-        }
+.form-control:focus {
+  border-color: var(--color-primary);
+  outline: var(--focus-outline);
+  outline-offset: 0;
+}
 
-        .step-content {
-            flex: 1;
-        }
+.form-row {
+  display: flex;
+  gap: var(--space-16);
+}
 
-        .step-actions {
-            display: flex;
-            gap: 8px;
-            margin-top: 12px;
-        }
+.form-row .form-group {
+  flex: 1;
+}
 
-        .btn-remove {
-            padding: 8px 16px;
-            background: rgba(192, 21, 47, 0.1);
-            color: var(--color-text);
-            border: 1px solid rgba(192, 21, 47, 0.3);
-            font-size: 13px;
-        }
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin-bottom: var(--space-20);
+}
 
-        .btn-remove:hover {
-            background: rgba(192, 21, 47, 0.2);
-        }
+.checkbox-group input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
 
-        .add-step-btn {
-            padding: var(--space-8) var(--space-16);
-            font-size: 13px;
-        }
+.checkbox-group label {
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  margin: 0;
+}
 
-        .hidden {
-            display: none;
-        }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-12) var(--space-24);
+  border-radius: var(--radius-base);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.5;
+  cursor: pointer;
+  transition: all var(--duration-normal) var(--ease-standard);
+  border: none;
+  text-decoration: none;
+  font-family: var(--font-family-base);
+}
+
+.btn--primary {
+  background: var(--color-primary);
+  color: var(--color-btn-primary-text);
+}
+
+.btn--primary:hover {
+  background: var(--color-primary-hover);
+}
+
+.btn--primary:active {
+  background: var(--color-primary-active);
+}
+
+.btn--secondary {
+  background: var(--color-secondary);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+.btn--secondary:hover {
+  background: var(--color-secondary-hover);
+}
+
+.btn--full-width {
+  width: 100%;
+}
+
+.btn-group {
+  display: flex;
+  gap: var(--space-12);
+  margin-top: var(--space-20);
+}
+
+.output-content {
+  background-color: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-base);
+  padding: var(--space-20);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  min-height: 400px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-base);
+}
+
+.hidden {
+  display: none;
+}
+
+.error-message {
+  color: var(--color-error);
+  font-size: var(--font-size-sm);
+  margin-top: var(--space-4);
+}
+
+.database-fields {
+  background-color: var(--color-bg-1);
+  padding: var(--space-16);
+  border-radius: var(--radius-base);
+  margin-bottom: var(--space-20);
+}
+
+.database-row {
+  display: flex;
+  gap: var(--space-12);
+  align-items: flex-end;
+  margin-bottom: var(--space-12);
+  padding: var(--space-12);
+  background-color: var(--color-surface);
+  border-radius: var(--radius-base);
+  border: 1px solid var(--color-border);
+}
+
+.database-row .form-group {
+  margin-bottom: 0;
+  flex: 1;
+}
+
+.database-row .db-name-field {
+  flex: 1.5;
+}
+
+.database-row .db-role-field {
+  flex: 1;
+}
+
+.database-row .db-hostname-field {
+  flex: 2;
+}
+
+.btn-remove {
+  padding: var(--space-10) var(--space-16);
+  background: var(--color-error);
+  color: white;
+  border: none;
+  border-radius: var(--radius-base);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  transition: all var(--duration-normal) var(--ease-standard);
+  white-space: nowrap;
+}
+
+.btn-remove:hover {
+  background: var(--color-red-500);
+  opacity: 0.9;
+}
+
+.btn-remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.field-group-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 var(--space-16) 0;
+  color: var(--color-text);
+}
+
+@media (max-width: 900px) {
+  .main-content {
+    flex-direction: column;
+  }
+  
+  .form-section,
+  .output-section {
+    min-width: 100%;
+  }
+  
+  .form-row {
+    flex-direction: column;
+  }
+}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📝 Post Trade Implementation Notes Generator</h1>
-
-        <div class="card">
-            <div class="section-header">Basic Information</div>
-            <div class="grid">
-                <div class="form-group">
-                    <label>Implementation Type</label>
-                    <select id="implType">
-                        <option value="Database Change">Database Change</option>
-                        <option value="Schema Update">Schema Update</option>
-                        <option value="Patch Application">Patch Application</option>
-                        <option value="Configuration Change">Configuration Change</option>
-                        <option value="Performance Tuning">Performance Tuning</option>
-                        <option value="Backup/Recovery">Backup/Recovery</option>
-                        <option value="Migration">Migration</option>
-                        <option value="Other">Other</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Environment</label>
-                    <select id="environment">
-                        <option value="Production">Production</option>
-                        <option value="Production Standby">Production Standby</option>
-                        <option value="Mem-Test">Mem-Test</option>
-                        <option value="Pre-Prod">Pre-Prod</option>
-                        <option value="Non-Prod Standby">Non-Prod Standby</option>
-                        <option value="Development">Development</option>
-                        <option value="Test">Test</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label>Database Information <span style="color: rgba(192, 21, 47, 1);">*</span></label>
-                <div id="dbNamesContainer">
-                    <div class="db-item" style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
-                        <input type="text" class="db-input" placeholder="e.g., PRODDB01" style="flex: 2;">
-                        <select class="db-type" style="width: 130px; margin: 0;">
-                            <option value="Primary">Primary</option>
-                            <option value="Standby">Standby</option>
+        <div class="header">
+            <h1>Implementation Notes Generator</h1>
+            <p>Generate comprehensive database implementation documentation</p>
+        </div>
+        
+        <div class="main-content">
+            <!-- Form Section -->
+            <div class="form-section">
+                <h2 class="section-title">Implementation Details</h2>
+                
+                <form id="notesForm">
+                    <!-- Implementation Type -->
+                    <div class="form-group">
+                        <label class="form-label" for="implementationType">
+                            Implementation Type<span class="required">*</span>
+                        </label>
+                        <select class="form-control" id="implementationType" required>
+                            <option value="">Select Implementation Type</option>
+                            <option value="Patching">Patching</option>
+                            <option value="Database Change">Database Change</option>
+                            <option value="DB Configuration Change">DB Configuration Change</option>
+                            <option value="Schema Update">Schema Update</option>
+                            <option value="Performance Tuning">Performance Tuning</option>
+                            <option value="Backup/Recovery">Backup/Recovery</option>
+                            <option value="Migration">Migration</option>
+                            <option value="Security Update">Security Update</option>
+                            <option value="User Management">User Management</option>
+                            <option value="Other">Other</option>
                         </select>
-                        <input type="text" class="hostname-input" placeholder="e.g., dbserver01.domain.com" style="flex: 2;">
-                        <button class="btn btn-secondary" style="padding: 8px 16px; margin: 0;" onclick="removeDbName(this)">Remove</button>
                     </div>
-                </div>
-                <button class="btn btn-secondary add-step-btn" onclick="addDbName()">+ Add Database</button>
-            </div>
 
-            <div class="form-group">
-                <label>Summary / Objective <span style="color: rgba(192, 21, 47, 1);">*</span></label>
-                <textarea id="summary" placeholder="Brief description of the implementation..."></textarea>
-            </div>
-        </div>
+                    <!-- Sub-category dropdown (conditionally visible) -->
+                    <div class="form-group hidden" id="subCategoryGroup">
+                        <label class="form-label" id="subCategoryLabel" for="subCategory">
+                            Sub-category<span class="required">*</span>
+                        </label>
+                        <select class="form-control" id="subCategory">
+                            <option value="">Select Sub-category</option>
+                        </select>
+                    </div>
 
-        <div class="card">
-            <div class="section-header">Pre-Implementation Checks</div>
-            <div class="form-group">
-                <label>Pre-requisites & Validation <span style="color: rgba(192, 21, 47, 1);">*</span></label>
-                <textarea id="preChecks" placeholder="- Verified current database version&#10;- Confirmed backup completed successfully&#10;- Validated sufficient space available&#10;- Reviewed impact analysis"></textarea>
-            </div>
-        </div>
+                    <!-- Environment -->
+                    <div class="form-group">
+                        <label class="form-label" for="environment">
+                            Environment<span class="required">*</span>
+                        </label>
+                        <select class="form-control" id="environment" required>
+                            <option value="">Select Environment</option>
+                            <option value="Production">Production</option>
+                            <option value="Production Standby">Production Standby</option>
+                            <option value="Mem-Test">Mem-Test</option>
+                            <option value="Pre-Prod">Pre-Prod</option>
+                            <option value="Non-Prod Standby">Non-Prod Standby</option>
+                            <option value="Development">Development</option>
+                            <option value="Test">Test</option>
+                        </select>
+                    </div>
 
-        <div class="card">
-            <div class="section-header">Implementation Steps <span style="color: rgba(192, 21, 47, 1);">*</span></div>
-            <div id="stepsContainer">
-                <div class="step-item">
-                    <div class="step-number">1</div>
-                    <div class="step-content">
-                        <textarea class="step-input" placeholder="Describe the step and commands executed..."></textarea>
-                        <div class="step-actions">
-                            <button class="btn btn-secondary btn-remove" onclick="removeStep(this)">Remove Step</button>
+                    <!-- Database Information -->
+                    <div class="database-fields">
+                        <h3 class="field-group-title">Database Information<span class="required">*</span></h3>
+                        
+                        <div id="databaseContainer">
+                            <!-- Database rows will be added dynamically -->
                         </div>
+
+                        <button type="button" class="btn btn--secondary" id="addDatabaseBtn" style="margin-top: var(--space-12);">
+                            + Add Database
+                        </button>
                     </div>
+
+                    <!-- Summary -->
+                    <div class="form-group">
+                        <label class="form-label" for="summary">
+                            Summary<span class="required">*</span>
+                        </label>
+                        <textarea class="form-control" id="summary" rows="3" required></textarea>
+                    </div>
+
+                    <!-- Pre-checks -->
+                    <div class="form-group">
+                        <label class="form-label" for="preChecks">
+                            Pre-checks<span class="required">*</span>
+                        </label>
+                        <textarea class="form-control" id="preChecks" rows="5" placeholder="Enter each pre-check on a new line" required></textarea>
+                    </div>
+
+                    <!-- Implementation Steps -->
+                    <div class="form-group">
+                        <label class="form-label" for="implementationSteps">
+                            Implementation Steps<span class="required">*</span>
+                        </label>
+                        <textarea class="form-control" id="implementationSteps" rows="8" placeholder="Enter each step on a new line" required></textarea>
+                    </div>
+
+                    <!-- Validation Steps -->
+                    <div class="form-group">
+                        <label class="form-label" for="validation">
+                            Validation Steps<span class="required">*</span>
+                        </label>
+                        <textarea class="form-control" id="validation" rows="5" placeholder="Enter each validation step on a new line" required></textarea>
+                    </div>
+
+                    <!-- Rollback Plan -->
+                    <div class="form-group">
+                        <label class="form-label" for="rollback">
+                            Rollback Plan<span class="required">*</span>
+                        </label>
+                        <textarea class="form-control" id="rollback" rows="5" placeholder="Enter rollback steps on new lines" required></textarea>
+                    </div>
+
+                    <!-- Known Issues Checkbox -->
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="includeKnownIssues">
+                        <label for="includeKnownIssues">Include Known Issues Section</label>
+                    </div>
+
+                    <!-- Known Issues (conditionally visible) -->
+                    <div class="form-group hidden" id="knownIssuesGroup">
+                        <label class="form-label" for="knownIssues">
+                            Known Issues
+                        </label>
+                        <textarea class="form-control" id="knownIssues" rows="4" placeholder="Describe any known issues"></textarea>
+                    </div>
+
+                    <!-- Generate Button -->
+                    <button type="submit" class="btn btn--primary btn--full-width">Generate Notes</button>
+                </form>
+            </div>
+
+            <!-- Output Section -->
+            <div class="output-section">
+                <h2 class="section-title">Generated Notes</h2>
+                
+                <div id="outputContent" class="output-content">
+                    <div class="empty-state">Fill in the form and click "Generate Notes" to see the output</div>
                 </div>
-            </div>
-            <button class="btn btn-secondary add-step-btn" onclick="addStep()">+ Add Step</button>
-        </div>
 
-        <div class="card">
-            <div class="section-header">Post-Implementation Validation</div>
-            <div class="form-group">
-                <label>Validation Steps & Results <span style="color: rgba(192, 21, 47, 1);">*</span></label>
-                <textarea id="validation" placeholder="- Verified service is running&#10;- Confirmed application connectivity&#10;- Validated data integrity&#10;- Performance checks completed"></textarea>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="section-header">
-                <label style="display: flex; align-items: center; margin: 0; font-size: 18px; font-weight: 600;">
-                    <input type="checkbox" id="issuesCheckbox" style="width: auto; margin-right: 12px;" onchange="toggleIssuesSection()">
-                    Known Issues & Resolution
-                </label>
-            </div>
-            <div class="form-group" id="issuesSection" style="display: none;">
-                <label>Issues Encountered</label>
-                <textarea id="issues" placeholder="Describe any issues and how they were resolved..."></textarea>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="section-header">Rollback Plan</div>
-            <div class="form-group">
-                <label>Rollback Procedure <span style="color: rgba(192, 21, 47, 1);">*</span></label>
-                <textarea id="rollback" placeholder="Steps to rollback changes if needed..."></textarea>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="button-group">
-                <button class="btn" onclick="generateNotes()">Generate Notes</button>
-                <button class="btn btn-secondary" onclick="clearForm()">Clear Form</button>
-            </div>
-        </div>
-
-        <div id="outputSection" class="card hidden">
-            <div class="section-header">Generated Implementation Notes</div>
-            <div class="output" id="output"></div>
-            <div class="button-group">
-                <button class="btn" onclick="copyToClipboard()">Copy to Clipboard</button>
-                <button class="btn btn-secondary" onclick="downloadNotes()">Download as Text</button>
+                <div class="btn-group hidden" id="actionButtons">
+                    <button class="btn btn--primary" id="copyBtn">Copy to Clipboard</button>
+                    <button class="btn btn--secondary" id="downloadBtn">Download as .txt</button>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        let stepCount = 1;
+        // Implementation type subcategories mapping
+        const implementationTypeData = {
+            'Patching': {
+                label: 'Patching Type',
+                options: [
+                    'GI Patching',
+                    'RDBMS Patching',
+                    'GI+RDBMS Patching',
+                    'GI Pre-Patching',
+                    'RDBMS Pre-Patching',
+                    'GI+RDBMS Pre-Patching'
+                ]
+            },
+            'Database Change': {
+                label: 'Database Change Type',
+                options: [
+                    'Parameter Change',
+                    'Database Restart',
+                    'Tablespace Addition',
+                    'Datafile Addition',
+                    'Redo Log Management',
+                    'Archive Log Configuration',
+                    'Database Upgrade',
+                    'PDB Operations (Create/Clone/Drop)',
+                    'Other'
+                ]
+            },
+            'DB Configuration Change': {
+                label: 'Configuration Type',
+                options: [
+                    'SRVCTL Configuration',
+                    'Listener Configuration',
+                    'ASM Disk Addition',
+                    'OCR/Voting Disk Management',
+                    'Grid Infrastructure Configuration',
+                    'TNS Configuration',
+                    'Network Configuration',
+                    'Resource Manager Configuration',
+                    'Other'
+                ]
+            }
+        };
 
-        function toggleIssuesSection() {
-            const checkbox = document.getElementById('issuesCheckbox');
-            const section = document.getElementById('issuesSection');
-            section.style.display = checkbox.checked ? 'block' : 'none';
+        // DOM elements
+        const implementationType = document.getElementById('implementationType');
+        const subCategoryGroup = document.getElementById('subCategoryGroup');
+        const subCategoryLabel = document.getElementById('subCategoryLabel');
+        const subCategory = document.getElementById('subCategory');
+        const includeKnownIssuesCheckbox = document.getElementById('includeKnownIssues');
+        const knownIssuesGroup = document.getElementById('knownIssuesGroup');
+        const notesForm = document.getElementById('notesForm');
+        const outputContent = document.getElementById('outputContent');
+        const actionButtons = document.getElementById('actionButtons');
+        const copyBtn = document.getElementById('copyBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+
+        let generatedNotes = '';
+        let databaseCounter = 0;
+        const databases = [];
+
+        // Initialize with one database row
+        function initializeDatabases() {
+            addDatabaseRow();
         }
 
-        function addStep() {
-            stepCount++;
-            const container = document.getElementById('stepsContainer');
-            const stepDiv = document.createElement('div');
-            stepDiv.className = 'step-item';
-            stepDiv.innerHTML = `
-                <div class="step-number">${stepCount}</div>
-                <div class="step-content">
-                    <textarea class="step-input" placeholder="Describe the step and commands executed..."></textarea>
-                    <div class="step-actions">
-                        <button class="btn btn-secondary btn-remove" onclick="removeStep(this)">Remove Step</button>
-                    </div>
+        // Add a new database row
+        function addDatabaseRow() {
+            databaseCounter++;
+            const container = document.getElementById('databaseContainer');
+            
+            const row = document.createElement('div');
+            row.className = 'database-row';
+            row.dataset.dbId = databaseCounter;
+            
+            row.innerHTML = `
+                <div class="form-group db-name-field">
+                    <label class="form-label" for="dbName${databaseCounter}">
+                        Database Name<span class="required">*</span>
+                    </label>
+                    <input type="text" class="form-control db-name-input" id="dbName${databaseCounter}" required placeholder="e.g., PRODDB01">
                 </div>
+                
+                <div class="form-group db-role-field">
+                    <label class="form-label" for="dbRole${databaseCounter}">
+                        Primary/Standby<span class="required">*</span>
+                    </label>
+                    <select class="form-control db-role-input" id="dbRole${databaseCounter}" required>
+                        <option value="">Select</option>
+                        <option value="Primary">Primary</option>
+                        <option value="Standby">Standby</option>
+                    </select>
+                </div>
+                
+                <div class="form-group db-hostname-field">
+                    <label class="form-label" for="dbHostname${databaseCounter}">
+                        Hostname<span class="required">*</span>
+                    </label>
+                    <input type="text" class="form-control db-hostname-input" id="dbHostname${databaseCounter}" required placeholder="e.g., dbserver01.domain.com">
+                </div>
+                
+                <button type="button" class="btn-remove" onclick="removeDatabaseRow(${databaseCounter})">
+                    Remove
+                </button>
             `;
-            container.appendChild(stepDiv);
+            
+            container.appendChild(row);
+            updateRemoveButtons();
         }
 
-        function removeStep(button) {
-            const container = document.getElementById('stepsContainer');
-            const stepItems = container.querySelectorAll('.step-item');
+        // Remove a database row
+        function removeDatabaseRow(dbId) {
+            const container = document.getElementById('databaseContainer');
+            const rows = container.querySelectorAll('.database-row');
             
-            // Don't remove if it's the last step
-            if (stepItems.length <= 1) {
-                alert('Cannot remove the last step. At least one step is required.');
-                return;
+            if (rows.length > 1) {
+                const row = container.querySelector(`[data-db-id="${dbId}"]`);
+                if (row) {
+                    row.remove();
+                    updateRemoveButtons();
+                }
             }
-            
-            // Remove the step
-            button.closest('.step-item').remove();
-            
-            // Renumber remaining steps
-            const remainingSteps = container.querySelectorAll('.step-item');
-            remainingSteps.forEach((step, index) => {
-                step.querySelector('.step-number').textContent = index + 1;
-            });
-            stepCount = remainingSteps.length;
         }
 
-        function addDbName() {
-            const container = document.getElementById('dbNamesContainer');
-            const dbDiv = document.createElement('div');
-            dbDiv.className = 'db-item';
-            dbDiv.style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px; align-items: center;';
-            dbDiv.innerHTML = `
-                <input type="text" class="db-input" placeholder="e.g., PRODDB02" style="flex: 2;">
-                <select class="db-type" style="width: 130px; margin: 0;">
-                    <option value="Primary">Primary</option>
-                    <option value="Standby">Standby</option>
-                </select>
-                <input type="text" class="hostname-input" placeholder="e.g., dbserver02.domain.com" style="flex: 2;">
-                <button class="btn btn-secondary" style="padding: 8px 16px; margin: 0;" onclick="removeDbName(this)">Remove</button>
-            `;
-            container.appendChild(dbDiv);
-        }
-
-        function removeDbName(button) {
-            const container = document.getElementById('dbNamesContainer');
-            const dbItems = container.querySelectorAll('.db-item');
+        // Update remove button states
+        function updateRemoveButtons() {
+            const container = document.getElementById('databaseContainer');
+            const rows = container.querySelectorAll('.database-row');
+            const removeButtons = container.querySelectorAll('.btn-remove');
             
-            // Don't remove if it's the last database
-            if (dbItems.length <= 1) {
-                alert('Cannot remove the last database. At least one database is required.');
-                return;
-            }
-            
-            button.closest('.db-item').remove();
-        }
-
-        function addHostname() {
-            const container = document.getElementById('hostnameContainer');
-            const hostnameDiv = document.createElement('div');
-            hostnameDiv.className = 'hostname-item';
-            hostnameDiv.style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px;';
-            hostnameDiv.innerHTML = `
-                <input type="text" class="hostname-input" placeholder="e.g., dbserver02.domain.com" style="flex: 1;">
-                <button class="btn btn-secondary" style="padding: 8px 16px; margin: 0;" onclick="removeHostname(this)">Remove</button>
-            `;
-            container.appendChild(hostnameDiv);
-        }
-
-        function removeHostname(button) {
-            const container = document.getElementById('hostnameContainer');
-            const hostnameItems = container.querySelectorAll('.hostname-item');
-            
-            // Don't remove if it's the last hostname
-            if (hostnameItems.length <= 1) {
-                alert('Cannot remove the last hostname. At least one hostname is required.');
-                return;
-            }
-            
-            button.closest('.hostname-item').remove();
-        }
-
-        function generateNotes() {
-            const implType = document.getElementById('implType').value;
-            const environment = document.getElementById('environment').value;
-            
-            // Validate database names
-            const dbItems = Array.from(document.querySelectorAll('.db-item'));
-            let hasEmptyDb = false;
-            const dbNames = dbItems.map((item, index) => {
-                    const name = item.querySelector('.db-input').value.trim();
-                    const type = item.querySelector('.db-type').value;
-                    const hostname = item.querySelector('.hostname-input').value.trim();
-                    if (!name || !hostname) {
-                        hasEmptyDb = true;
-                    }
-                    if (name) {
-                        return `${name} (${type}) (${hostname || 'hostname-not-specified'})`;
-                    }
-                    return '';
-                })
-                .filter(val => val !== '')
-                .join('\n             ');
-            
-            const summary = document.getElementById('summary').value.trim();
-            const preChecks = document.getElementById('preChecks').value.trim();
-            const validation = document.getElementById('validation').value.trim();
-            const issuesCheckbox = document.getElementById('issuesCheckbox').checked;
-            const issues = issuesCheckbox ? document.getElementById('issues').value : '';
-            const rollback = document.getElementById('rollback').value.trim();
-
-            // Validate steps
-            const stepInputs = Array.from(document.querySelectorAll('.step-input'));
-            const hasEmptyStep = stepInputs.some(input => !input.value.trim());
-            
-            const steps = stepInputs
-                .map((input, index) => `${index + 1}. ${input.value}`)
-                .filter(step => step.trim() !== `${step.split('.')[0]}.`)
-                .join('\n\n');
-
-            // Validation checks
-            if (hasEmptyDb) {
-                alert('Error: All database names and hostnames are mandatory. Please fill in all fields.');
-                return;
-            }
-            if (!summary) {
-                alert('Error: Summary/Objective is mandatory. Please provide a summary.');
-                return;
-            }
-            if (!preChecks) {
-                alert('Error: Pre-Implementation Checks are mandatory. Please document pre-checks.');
-                return;
-            }
-            if (hasEmptyStep) {
-                alert('Error: All implementation steps are mandatory. Please fill in all steps.');
-                return;
-            }
-            if (!validation) {
-                alert('Error: Post-Implementation Validation is mandatory. Please document validation.');
-                return;
-            }
-            if (!rollback) {
-                alert('Error: Rollback Plan is mandatory. Please provide rollback procedure.');
-                return;
-            }
-
-            const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
-
-            const notes = `
-================================================================================
-                    IMPLEMENTATION NOTES
-================================================================================
-
-Implementation Type: ${implType}
-Environment: ${environment}
-Database(s): ${dbNames || 'N/A'}
-Date/Time: ${timestamp}
-
-================================================================================
-SUMMARY / OBJECTIVE
-================================================================================
-
-${summary || 'No summary provided'}
-
-================================================================================
-PRE-IMPLEMENTATION CHECKS
-================================================================================
-
-${preChecks || 'No pre-checks documented'}
-
-================================================================================
-IMPLEMENTATION STEPS
-================================================================================
-
-${steps || 'No steps documented'}
-
-================================================================================
-POST-IMPLEMENTATION VALIDATION
-================================================================================
-
-${validation || 'No validation documented'}
-
-${issuesCheckbox ? `
-================================================================================
-KNOWN ISSUES & RESOLUTION
-================================================================================
-
-${issues || 'No issues documented'}
-` : ''}
-
-================================================================================
-ROLLBACK PLAN
-================================================================================
-
-${rollback || 'No rollback plan documented'}
-
-================================================================================
-NOTES GENERATED
-================================================================================
-
-Notes Generated Time: ${timestamp}
-
-================================================================================
-            `.trim();
-
-            document.getElementById('output').textContent = notes;
-            document.getElementById('outputSection').classList.remove('hidden');
-            document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' });
-        }
-
-        function generateShellScript() {
-            const script = `#!/bin/bash
-################################################################################
-# Implementation Notes Generator Shell Script
-# Author: ${document.getElementById('implementer').value || 'DBA Team'}
-# Date: ${new Date().toLocaleDateString('en-IN')}
-################################################################################
-
-# Configuration
-IMPL_TYPE="${document.getElementById('implType').value}"
-ENVIRONMENT="${document.getElementById('environment').value}"
-DB_NAME="${document.getElementById('dbName').value}"
-TICKET_NUMBER="${document.getElementById('ticketNumber').value}"
-IMPLEMENTER="${document.getElementById('implementer').value}"
-LOG_DIR="/path/to/logs"
-NOTES_FILE="${LOG_DIR}/implementation_notes_\${DB_NAME}_$(date +%Y%m%d_%H%M%S).txt"
-
-# Create log directory if it doesn't exist
-mkdir -p "\${LOG_DIR}"
-
-# Function to write header
-write_header() {
-    cat << EOF >> "\${NOTES_FILE}"
-================================================================================
-                    IMPLEMENTATION NOTES
-================================================================================
-
-Implementation Type: \${IMPL_TYPE}
-Environment: \${ENVIRONMENT}
-Hostname(s): \${HOSTNAMES}
-Database(s): \${DB_NAMES}
-Date/Time: $(date '+%Y-%m-%d %H:%M:%S')
-
-================================================================================
-SUMMARY / OBJECTIVE
-================================================================================
-
-[SUMMARY GOES HERE]
-
-================================================================================
-PRE-IMPLEMENTATION CHECKS
-================================================================================
-
-EOF
-}
-
-# Function to log step
-log_step() {
-    local step_num=\$1
-    local description=\$2
-    echo "" >> "\${NOTES_FILE}"
-    echo "Step \${step_num}: \${description}" >> "\${NOTES_FILE}"
-    echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')" >> "\${NOTES_FILE}"
-    echo "---" >> "\${NOTES_FILE}"
-}
-
-# Function to execute and log command
-execute_and_log() {
-    local command="\$1"
-    local description="\$2"
-    
-    echo "" >> "\${NOTES_FILE}"
-    echo "Command: \${command}" >> "\${NOTES_FILE}"
-    echo "Description: \${description}" >> "\${NOTES_FILE}"
-    echo "Output:" >> "\${NOTES_FILE}"
-    
-    # Execute command and capture output
-    output=\$(eval "\${command}" 2>&1)
-    exit_code=\$?
-    
-    echo "\${output}" >> "\${NOTES_FILE}"
-    echo "Exit Code: \${exit_code}" >> "\${NOTES_FILE}"
-    
-    if [ \${exit_code} -eq 0 ]; then
-        echo "Status: SUCCESS" >> "\${NOTES_FILE}"
-    else
-        echo "Status: FAILED" >> "\${NOTES_FILE}"
-    fi
-    echo "" >> "\${NOTES_FILE}"
-    
-    return \${exit_code}
-}
-
-# Start implementation notes
-write_header
-
-# Pre-implementation checks
-echo "Performing pre-implementation checks..." >> "\${NOTES_FILE}"
-execute_and_log "hostname" "Verify hostname"
-execute_and_log "date" "Check current date/time"
-# Add more pre-checks as needed
-
-# Implementation steps section
-cat << EOF >> "\${NOTES_FILE}"
-
-================================================================================
-IMPLEMENTATION STEPS
-================================================================================
-
-EOF
-
-# Example implementation steps
-log_step 1 "Connect to database and verify status"
-execute_and_log "sqlplus -s / as sysdba <<< 'select status from v\\\$instance;'" "Check instance status"
-
-log_step 2 "Your implementation step"
-# Add your commands here
-
-# Post-implementation validation
-cat << EOF >> "\${NOTES_FILE}"
-
-================================================================================
-POST-IMPLEMENTATION VALIDATION
-================================================================================
-
-EOF
-
-execute_and_log "sqlplus -s / as sysdba <<< 'select count(*) from dba_users;'" "Validate database accessibility"
-
-# Footer
-cat << EOF >> "\${NOTES_FILE}"
-
-================================================================================
-IMPLEMENTATION COMPLETED
-================================================================================
-
-Completion Time: $(date '+%Y-%m-%d %H:%M:%S')
-Notes saved to: \${NOTES_FILE}
-
-================================================================================
-EOF
-
-echo ""
-echo "Implementation notes generated successfully!"
-echo "File: \${NOTES_FILE}"
-echo ""
-`;
-
-            document.getElementById('output').textContent = script;
-            document.getElementById('outputSection').classList.remove('hidden');
-            document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' });
-        }
-
-        function copyToClipboard() {
-            const output = document.getElementById('output').textContent;
-            navigator.clipboard.writeText(output).then(() => {
-                alert('Copied to clipboard!');
-            }).catch(err => {
-                console.error('Failed to copy:', err);
+            removeButtons.forEach(button => {
+                if (rows.length <= 1) {
+                    button.disabled = true;
+                } else {
+                    button.disabled = false;
+                }
             });
         }
 
-        function downloadNotes() {
-            const output = document.getElementById('output').textContent;
-            const firstHostname = document.querySelector('.hostname-input')?.value.trim() || 'implementation';
-            const timestamp = new Date().toISOString().slice(0,10);
-            const filename = `${firstHostname}_implementation_notes_${timestamp}.txt`;
+        // Make removeDatabaseRow available globally
+        window.removeDatabaseRow = removeDatabaseRow;
+
+        // Add database button handler
+        document.getElementById('addDatabaseBtn').addEventListener('click', addDatabaseRow);
+
+        // Handle implementation type change
+        implementationType.addEventListener('change', function() {
+            const selectedType = this.value;
             
-            const blob = new Blob([output], { type: 'text/plain' });
-            const url = window.URL.createObjectURL(blob);
+            if (implementationTypeData[selectedType]) {
+                // Show sub-category dropdown
+                const data = implementationTypeData[selectedType];
+                subCategoryLabel.innerHTML = `${data.label}<span class="required">*</span>`;
+                
+                // Clear and populate options
+                subCategory.innerHTML = '<option value="">Select ' + data.label + '</option>';
+                data.options.forEach(option => {
+                    const optionElement = document.createElement('option');
+                    optionElement.value = option;
+                    optionElement.textContent = option;
+                    subCategory.appendChild(optionElement);
+                });
+                
+                subCategoryGroup.classList.remove('hidden');
+                subCategory.setAttribute('required', 'required');
+            } else {
+                // Hide sub-category dropdown
+                subCategoryGroup.classList.add('hidden');
+                subCategory.removeAttribute('required');
+                subCategory.value = '';
+            }
+        });
+
+        // Handle known issues checkbox
+        includeKnownIssuesCheckbox.addEventListener('change', function() {
+            if (this.checked) {
+                knownIssuesGroup.classList.remove('hidden');
+            } else {
+                knownIssuesGroup.classList.add('hidden');
+            }
+        });
+
+        // Format list items with numbering
+        function formatList(text, prefix = '') {
+            if (!text || !text.trim()) return '';
+            
+            const lines = text.split('\n').filter(line => line.trim());
+            return lines.map((line, index) => `${prefix}${index + 1}. ${line.trim()}`).join('\n');
+        }
+
+        // Generate implementation notes
+        function generateNotes(formData) {
+            let notes = '';
+            
+            // Title
+            notes += '='.repeat(80) + '\n';
+            notes += 'DATABASE IMPLEMENTATION NOTES\n';
+            notes += '='.repeat(80) + '\n\n';
+
+            // Implementation Type with sub-category
+            let implTypeText = formData.implementationType;
+            if (formData.subCategory) {
+                implTypeText += ` - ${formData.subCategory}`;
+            }
+            notes += `Implementation Type: ${implTypeText}\n`;
+            notes += `Environment: ${formData.environment}\n`;
+            
+            // Format database information
+            if (formData.databases && formData.databases.length > 0) {
+                if (formData.databases.length === 1) {
+                    const db = formData.databases[0];
+                    notes += `Database(s): ${db.name} (${db.role}) (${db.hostname})\n`;
+                } else {
+                    notes += `Database(s): ${formData.databases[0].name} (${formData.databases[0].role}) (${formData.databases[0].hostname})\n`;
+                    for (let i = 1; i < formData.databases.length; i++) {
+                        const db = formData.databases[i];
+                        notes += `             ${db.name} (${db.role}) (${db.hostname})\n`;
+                    }
+                }
+            }
+            
+            notes += `Date: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}\n\n`;
+
+            // Summary
+            notes += '-'.repeat(80) + '\n';
+            notes += '1. SUMMARY\n';
+            notes += '-'.repeat(80) + '\n';
+            notes += formData.summary + '\n\n';
+
+            // Pre-checks
+            notes += '-'.repeat(80) + '\n';
+            notes += '2. PRE-CHECKS\n';
+            notes += '-'.repeat(80) + '\n';
+            notes += formatList(formData.preChecks) + '\n\n';
+
+            // Implementation Steps
+            notes += '-'.repeat(80) + '\n';
+            notes += '3. IMPLEMENTATION STEPS\n';
+            notes += '-'.repeat(80) + '\n';
+            notes += formatList(formData.implementationSteps) + '\n\n';
+
+            // Validation
+            notes += '-'.repeat(80) + '\n';
+            notes += '4. VALIDATION STEPS\n';
+            notes += '-'.repeat(80) + '\n';
+            notes += formatList(formData.validation) + '\n\n';
+
+            // Rollback Plan
+            notes += '-'.repeat(80) + '\n';
+            notes += '5. ROLLBACK PLAN\n';
+            notes += '-'.repeat(80) + '\n';
+            notes += formatList(formData.rollback) + '\n\n';
+
+            // Known Issues (if included)
+            if (formData.includeKnownIssues && formData.knownIssues && formData.knownIssues.trim()) {
+                notes += '-'.repeat(80) + '\n';
+                notes += '6. KNOWN ISSUES\n';
+                notes += '-'.repeat(80) + '\n';
+                notes += formData.knownIssues + '\n\n';
+            }
+
+            notes += '='.repeat(80) + '\n';
+            notes += 'END OF IMPLEMENTATION NOTES\n';
+            notes += '='.repeat(80);
+
+            return notes;
+        }
+
+        // Handle form submission
+        notesForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Collect database information
+            const container = document.getElementById('databaseContainer');
+            const dbRows = container.querySelectorAll('.database-row');
+            const databases = [];
+            
+            let hasEmptyDbFields = false;
+            dbRows.forEach(row => {
+                const nameInput = row.querySelector('.db-name-input');
+                const roleInput = row.querySelector('.db-role-input');
+                const hostnameInput = row.querySelector('.db-hostname-input');
+                
+                if (!nameInput.value.trim() || !roleInput.value || !hostnameInput.value.trim()) {
+                    hasEmptyDbFields = true;
+                }
+                
+                databases.push({
+                    name: nameInput.value.trim(),
+                    role: roleInput.value,
+                    hostname: hostnameInput.value.trim()
+                });
+            });
+            
+            if (hasEmptyDbFields) {
+                alert('Please fill in all database fields (Database Name, Primary/Standby, and Hostname).');
+                return;
+            }
+            
+            // Collect form data
+            const formData = {
+                implementationType: document.getElementById('implementationType').value,
+                subCategory: document.getElementById('subCategory').value,
+                environment: document.getElementById('environment').value,
+                databases: databases,
+                summary: document.getElementById('summary').value,
+                preChecks: document.getElementById('preChecks').value,
+                implementationSteps: document.getElementById('implementationSteps').value,
+                validation: document.getElementById('validation').value,
+                rollback: document.getElementById('rollback').value,
+                includeKnownIssues: includeKnownIssuesCheckbox.checked,
+                knownIssues: document.getElementById('knownIssues').value
+            };
+
+            // Validate sub-category if required
+            if (implementationTypeData[formData.implementationType] && !formData.subCategory) {
+                alert('Please select a sub-category for the selected implementation type.');
+                return;
+            }
+
+            // Generate notes
+            generatedNotes = generateNotes(formData);
+            
+            // Display notes
+            outputContent.textContent = generatedNotes;
+            actionButtons.classList.remove('hidden');
+
+            // Scroll to output on mobile
+            if (window.innerWidth <= 900) {
+                outputContent.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        });
+
+        // Copy to clipboard
+        copyBtn.addEventListener('click', async function() {
+            try {
+                await navigator.clipboard.writeText(generatedNotes);
+                const originalText = this.textContent;
+                this.textContent = 'Copied!';
+                setTimeout(() => {
+                    this.textContent = originalText;
+                }, 2000);
+            } catch (err) {
+                alert('Failed to copy to clipboard');
+            }
+        });
+
+        // Download as text file
+        downloadBtn.addEventListener('click', function() {
+            const container = document.getElementById('databaseContainer');
+            const firstDbName = container.querySelector('.db-name-input')?.value || 'implementation';
+            const filename = `${firstDbName}_implementation_notes_${new Date().toISOString().split('T')[0]}.txt`;
+            
+            const blob = new Blob([generatedNotes], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = filename;
             document.body.appendChild(a);
             a.click();
-            window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
-        }
+            URL.revokeObjectURL(url);
+        });
 
-        function clearForm() {
-            if (confirm('Are you sure you want to clear the form?')) {
-                document.querySelectorAll('input, textarea, select').forEach(el => {
-                    if (el.tagName === 'SELECT') {
-                        el.selectedIndex = 0;
-                    } else {
-                        el.value = '';
-                    }
-                });
-                
-                // Reset steps
-                const container = document.getElementById('stepsContainer');
-                container.innerHTML = `
-                    <div class="step-item">
-                        <div class="step-number">1</div>
-                        <div class="step-content">
-                            <textarea class="step-input" placeholder="Describe the step and commands executed..."></textarea>
-                            <div class="step-actions">
-                                <button class="btn btn-secondary btn-remove" onclick="removeStep(this)">Remove Step</button>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                stepCount = 1;
-                
-                // Reset issues checkbox
-                document.getElementById('issuesCheckbox').checked = false;
-                document.getElementById('issuesSection').style.display = 'none';
-                
-                // Reset database names
-                const dbContainer = document.getElementById('dbNamesContainer');
-                dbContainer.innerHTML = `
-                    <div class="db-item" style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
-                        <input type="text" class="db-input" placeholder="e.g., PRODDB01" style="flex: 2;">
-                        <select class="db-type" style="width: 130px; margin: 0;">
-                            <option value="Primary">Primary</option>
-                            <option value="Standby">Standby</option>
-                        </select>
-                        <input type="text" class="hostname-input" placeholder="e.g., dbserver01.domain.com" style="flex: 2;">
-                        <button class="btn btn-secondary" style="padding: 8px 16px; margin: 0;" onclick="removeDbName(this)">Remove</button>
-                    </div>
-                `;
-                
-                document.getElementById('outputSection').classList.add('hidden');
-            }
-        }
+        // Initialize the form with one database row on page load
+        initializeDatabases();
     </script>
 </body>
 </html>
