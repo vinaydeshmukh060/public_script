@@ -608,6 +608,24 @@ textarea.form-control::placeholder {
   font-weight: var(--font-weight-normal);
 }
 
+.clear-btn {
+  background: linear-gradient(135deg, #dc2626, #b91c1c) !important;
+  color: white !important;
+  border: none;
+  box-shadow: var(--shadow-md);
+}
+
+.clear-btn:hover {
+  background: linear-gradient(135deg, #b91c1c, #991b1b) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(220, 38, 38, 0.3);
+}
+
+.clear-btn:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
 @media (max-width: 900px) {
   .form-row {
     flex-direction: column;
@@ -763,10 +781,15 @@ textarea.form-control::placeholder {
 - Resolution steps taken"></textarea>
                     </div>
 
-                    <!-- Generate Button -->
-                    <button type="submit" class="btn btn--primary btn--full-width btn--large">
-                        <span class="btn-icon">✓</span> Generate Notes
-                    </button>
+                    <!-- Action Buttons -->
+                    <div style="display: flex; gap: 16px; margin-top: 24px;">
+                        <button type="submit" class="btn btn--primary btn--large" style="flex: 1;">
+                            <span class="btn-icon">✓</span> Generate Notes
+                        </button>
+                        <button type="button" class="btn btn--large clear-btn" onclick="clearForm()" style="flex: 1;">
+                            <span class="btn-icon">🗑️</span> Clear Form
+                        </button>
+                    </div>
                 </form>
             </div>
 
@@ -1154,6 +1177,65 @@ textarea.form-control::placeholder {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         });
+
+        // Clear form function
+        function clearForm() {
+            // Check if form has any data
+            const hasData = document.getElementById('implementationType').value ||
+                           document.getElementById('environment').value ||
+                           document.getElementById('summary').value ||
+                           document.getElementById('preChecks').value ||
+                           document.getElementById('implementationSteps').value ||
+                           document.getElementById('validation').value ||
+                           document.getElementById('rollback').value;
+            
+            // Show confirmation dialog only if form has data
+            if (hasData) {
+                if (!confirm('Are you sure you want to clear all form data?')) {
+                    return;
+                }
+            }
+            
+            // Reset Implementation Type dropdown
+            document.getElementById('implementationType').value = '';
+            
+            // Hide and reset Sub-Category dropdown
+            subCategoryGroup.classList.add('hidden');
+            subCategory.removeAttribute('required');
+            subCategory.value = '';
+            
+            // Reset Environment dropdown
+            document.getElementById('environment').value = '';
+            
+            // Remove all database rows and add one empty row
+            const container = document.getElementById('databaseContainer');
+            container.innerHTML = '';
+            databaseCounter = 0;
+            addDatabaseRow();
+            
+            // Clear all textareas
+            document.getElementById('summary').value = '';
+            document.getElementById('preChecks').value = '';
+            document.getElementById('implementationSteps').value = '';
+            document.getElementById('validation').value = '';
+            document.getElementById('rollback').value = '';
+            
+            // Uncheck Known Issues checkbox and hide textarea
+            includeKnownIssuesCheckbox.checked = false;
+            knownIssuesGroup.classList.add('hidden');
+            document.getElementById('knownIssues').value = '';
+            
+            // Hide generated notes section
+            outputContent.innerHTML = '<div class="empty-state">Fill in the form and click "Generate Notes" to see the output</div>';
+            actionButtons.classList.add('hidden');
+            generatedNotes = '';
+            
+            // Scroll to top of page
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        
+        // Make clearForm available globally
+        window.clearForm = clearForm;
 
         // Initialize the form with one database row on page load
         initializeDatabases();
