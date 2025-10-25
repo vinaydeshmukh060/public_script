@@ -212,9 +212,10 @@ body {
 
 .header h1 {
   font-size: var(--font-size-4xl);
-  font-weight: var(--font-weight-semibold);
-  margin: 0 0 var(--space-8) 0;
+  font-weight: var(--font-weight-bold);
+  margin: 0 0 var(--space-12) 0;
   color: var(--color-text);
+  letter-spacing: var(--letter-spacing-tight);
 }
 
 .header p {
@@ -224,40 +225,58 @@ body {
 }
 
 .main-content {
-  display: flex;
-  gap: var(--space-24);
-  flex-wrap: wrap;
+  display: block;
 }
 
 .form-section {
-  flex: 1;
-  min-width: 400px;
   background-color: var(--color-surface);
-  padding: var(--space-24);
+  padding: var(--space-32);
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-card-border);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
+  margin-bottom: var(--space-32);
 }
 
 .output-section {
-  flex: 1;
-  min-width: 400px;
   background-color: var(--color-surface);
-  padding: var(--space-24);
+  padding: var(--space-32);
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-card-border);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
+  margin-top: var(--space-32);
+  transition: all var(--duration-normal) var(--ease-standard);
+}
+
+.output-section.highlight {
+  animation: highlightPulse 0.6s ease-out;
+}
+
+@keyframes highlightPulse {
+  0% {
+    box-shadow: var(--shadow-md);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--color-focus-ring), var(--shadow-lg);
+    transform: scale(1.01);
+  }
+  100% {
+    box-shadow: var(--shadow-md);
+    transform: scale(1);
+  }
 }
 
 .section-title {
   font-size: var(--font-size-2xl);
   font-weight: var(--font-weight-semibold);
-  margin: 0 0 var(--space-20) 0;
+  margin: 0 0 var(--space-24) 0;
+  padding-bottom: var(--space-16);
+  border-bottom: 2px solid var(--color-border);
   color: var(--color-text);
 }
 
 .form-group {
-  margin-bottom: var(--space-20);
+  margin-bottom: var(--space-24);
 }
 
 .form-label {
@@ -268,6 +287,18 @@ body {
   color: var(--color-text);
 }
 
+.label-text {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+}
+
+.label-help {
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  margin-left: var(--space-4);
+}
+
 .required {
   color: var(--color-error);
   margin-left: var(--space-4);
@@ -276,15 +307,20 @@ body {
 .form-control {
   display: block;
   width: 100%;
-  padding: var(--space-10) var(--space-12);
+  padding: var(--space-12) var(--space-16);
   font-size: var(--font-size-base);
   line-height: 1.5;
   color: var(--color-text);
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-base);
-  transition: border-color var(--duration-fast) var(--ease-standard);
+  transition: all var(--duration-normal) var(--ease-standard);
   font-family: var(--font-family-base);
+}
+
+.form-control:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
 }
 
 select.form-control {
@@ -309,10 +345,21 @@ textarea.form-control {
   min-height: 100px;
 }
 
+textarea.form-control::placeholder {
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+}
+
+.form-control::placeholder {
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+}
+
 .form-control:focus {
   border-color: var(--color-primary);
   outline: var(--focus-outline);
   outline-offset: 0;
+  box-shadow: var(--focus-ring);
 }
 
 .form-row {
@@ -327,26 +374,34 @@ textarea.form-control {
 .checkbox-group {
   display: flex;
   align-items: center;
-  gap: var(--space-8);
-  margin-bottom: var(--space-20);
+  gap: var(--space-12);
+  margin-bottom: var(--space-24);
+  padding: var(--space-16);
+  background-color: var(--color-bg-2);
+  border-radius: var(--radius-base);
+  border: 1px solid var(--color-card-border);
 }
 
 .checkbox-group input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   cursor: pointer;
+  accent-color: var(--color-primary);
 }
 
 .checkbox-group label {
   cursor: pointer;
   font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
   margin: 0;
+  color: var(--color-text);
 }
 
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: var(--space-8);
   padding: var(--space-12) var(--space-24);
   border-radius: var(--radius-base);
   font-size: var(--font-size-base);
@@ -357,6 +412,11 @@ textarea.form-control {
   border: none;
   text-decoration: none;
   font-family: var(--font-family-base);
+}
+
+.btn-icon {
+  font-size: var(--font-size-lg);
+  line-height: 1;
 }
 
 .btn--primary {
@@ -370,6 +430,24 @@ textarea.form-control {
 
 .btn--primary:active {
   background: var(--color-primary-active);
+  transform: translateY(1px);
+}
+
+.btn--large {
+  padding: var(--space-16) var(--space-32);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  box-shadow: var(--shadow-md);
+}
+
+.btn--large:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-1px);
+}
+
+.btn--large:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn--secondary {
@@ -380,6 +458,11 @@ textarea.form-control {
 
 .btn--secondary:hover {
   background: var(--color-secondary-hover);
+  transform: translateY(-1px);
+}
+
+.btn--secondary:active {
+  transform: translateY(0);
 }
 
 .btn--full-width {
@@ -389,14 +472,20 @@ textarea.form-control {
 .btn-group {
   display: flex;
   gap: var(--space-12);
-  margin-top: var(--space-20);
+  margin-top: var(--space-24);
+  flex-wrap: wrap;
+}
+
+.btn-group .btn {
+  flex: 1;
+  min-width: 150px;
 }
 
 .output-content {
   background-color: var(--color-background);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-base);
-  padding: var(--space-20);
+  border: 1px solid var(--color-card-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-24);
   font-family: var(--font-family-mono);
   font-size: var(--font-size-sm);
   line-height: 1.6;
@@ -405,6 +494,7 @@ textarea.form-control {
   min-height: 400px;
   max-height: 600px;
   overflow-y: auto;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .empty-state {
@@ -428,20 +518,29 @@ textarea.form-control {
 
 .database-fields {
   background-color: var(--color-bg-1);
-  padding: var(--space-16);
-  border-radius: var(--radius-base);
-  margin-bottom: var(--space-20);
+  padding: var(--space-20);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-24);
+  border: 1px solid var(--color-card-border);
+  box-shadow: var(--shadow-xs);
 }
 
 .database-row {
   display: flex;
   gap: var(--space-12);
   align-items: flex-end;
-  margin-bottom: var(--space-12);
-  padding: var(--space-12);
+  margin-bottom: var(--space-16);
+  padding: var(--space-16);
   background-color: var(--color-surface);
-  border-radius: var(--radius-base);
-  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-card-border);
+  box-shadow: var(--shadow-sm);
+  transition: all var(--duration-normal) var(--ease-standard);
+}
+
+.database-row:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-primary);
 }
 
 .database-row .form-group {
@@ -462,6 +561,9 @@ textarea.form-control {
 }
 
 .btn-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
   padding: var(--space-10) var(--space-16);
   background: var(--color-error);
   color: white;
@@ -472,6 +574,12 @@ textarea.form-control {
   font-weight: var(--font-weight-medium);
   transition: all var(--duration-normal) var(--ease-standard);
   white-space: nowrap;
+  font-family: var(--font-family-base);
+}
+
+.btn-remove .btn-icon {
+  font-size: var(--font-size-xl);
+  line-height: 1;
 }
 
 .btn-remove:hover {
@@ -489,18 +597,18 @@ textarea.form-control {
   font-weight: var(--font-weight-semibold);
   margin: 0 0 var(--space-16) 0;
   color: var(--color-text);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.field-group-title .label-help {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-normal);
 }
 
 @media (max-width: 900px) {
-  .main-content {
-    flex-direction: column;
-  }
-  
-  .form-section,
-  .output-section {
-    min-width: 100%;
-  }
-  
   .form-row {
     flex-direction: column;
   }
@@ -516,14 +624,15 @@ textarea.form-control {
         
         <div class="main-content">
             <!-- Form Section -->
-            <div class="form-section">
+            <div class="form-section" id="formSection">
                 <h2 class="section-title">Implementation Details</h2>
                 
                 <form id="notesForm">
                     <!-- Implementation Type -->
                     <div class="form-group">
                         <label class="form-label" for="implementationType">
-                            Implementation Type<span class="required">*</span>
+                            <span class="label-text">Implementation Type</span><span class="required">*</span>
+                            <span class="label-help">→ Select Type of Change</span>
                         </label>
                         <select class="form-control" id="implementationType" required>
                             <option value="">Select Implementation Type</option>
@@ -543,7 +652,8 @@ textarea.form-control {
                     <!-- Sub-category dropdown (conditionally visible) -->
                     <div class="form-group hidden" id="subCategoryGroup">
                         <label class="form-label" id="subCategoryLabel" for="subCategory">
-                            Sub-category<span class="required">*</span>
+                            <span class="label-text">Sub-Category</span><span class="required">*</span>
+                            <span class="label-help">→ Specific Implementation Category</span>
                         </label>
                         <select class="form-control" id="subCategory">
                             <option value="">Select Sub-category</option>
@@ -553,7 +663,8 @@ textarea.form-control {
                     <!-- Environment -->
                     <div class="form-group">
                         <label class="form-label" for="environment">
-                            Environment<span class="required">*</span>
+                            <span class="label-text">Environment</span><span class="required">*</span>
+                            <span class="label-help">→ Target Environment</span>
                         </label>
                         <select class="form-control" id="environment" required>
                             <option value="">Select Environment</option>
@@ -569,55 +680,76 @@ textarea.form-control {
 
                     <!-- Database Information -->
                     <div class="database-fields">
-                        <h3 class="field-group-title">Database Information<span class="required">*</span></h3>
+                        <h3 class="field-group-title">
+                            <span class="label-text">Database Information</span><span class="required">*</span>
+                            <span class="label-help">→ Database Details (Name, Role, Hostname)</span>
+                        </h3>
                         
                         <div id="databaseContainer">
                             <!-- Database rows will be added dynamically -->
                         </div>
 
                         <button type="button" class="btn btn--secondary" id="addDatabaseBtn" style="margin-top: var(--space-12);">
-                            + Add Database
+                            <span class="btn-icon">+</span> Add Database
                         </button>
                     </div>
 
                     <!-- Summary -->
                     <div class="form-group">
                         <label class="form-label" for="summary">
-                            Summary<span class="required">*</span>
+                            <span class="label-text">Summary / Objective</span><span class="required">*</span>
+                            <span class="label-help">→ Brief Description of Implementation</span>
                         </label>
-                        <textarea class="form-control" id="summary" rows="3" required></textarea>
+                        <textarea class="form-control" id="summary" rows="3" required placeholder="Brief overview of the implementation objectives and expected outcomes"></textarea>
                     </div>
 
                     <!-- Pre-checks -->
                     <div class="form-group">
                         <label class="form-label" for="preChecks">
-                            Pre-checks<span class="required">*</span>
+                            <span class="label-text">Pre-requisites &amp; Validation</span><span class="required">*</span>
+                            <span class="label-help">→ Pre-Implementation Checks</span>
                         </label>
-                        <textarea class="form-control" id="preChecks" rows="5" placeholder="Enter each pre-check on a new line" required></textarea>
+                        <textarea class="form-control" id="preChecks" rows="5" placeholder="- Verify database version
+- Check tablespace availability
+- Confirm backup status
+- Review system resources" required></textarea>
                     </div>
 
                     <!-- Implementation Steps -->
                     <div class="form-group">
                         <label class="form-label" for="implementationSteps">
-                            Implementation Steps<span class="required">*</span>
+                            <span class="label-text">Implementation Steps</span><span class="required">*</span>
+                            <span class="label-help">→ Step-by-Step Execution Details</span>
                         </label>
-                        <textarea class="form-control" id="implementationSteps" rows="8" placeholder="Enter each step on a new line" required></textarea>
+                        <textarea class="form-control" id="implementationSteps" rows="8" placeholder="- Connect to the database
+- Take backup
+- Execute change
+- Verify status
+- Document results" required></textarea>
                     </div>
 
                     <!-- Validation Steps -->
                     <div class="form-group">
                         <label class="form-label" for="validation">
-                            Validation Steps<span class="required">*</span>
+                            <span class="label-text">Validation Steps</span><span class="required">*</span>
+                            <span class="label-help">→ Post-Implementation Validation</span>
                         </label>
-                        <textarea class="form-control" id="validation" rows="5" placeholder="Enter each validation step on a new line" required></textarea>
+                        <textarea class="form-control" id="validation" rows="5" placeholder="- Check database status
+- Verify configuration changes
+- Test connectivity
+- Review logs for errors" required></textarea>
                     </div>
 
                     <!-- Rollback Plan -->
                     <div class="form-group">
                         <label class="form-label" for="rollback">
-                            Rollback Plan<span class="required">*</span>
+                            <span class="label-text">Rollback Procedure</span><span class="required">*</span>
+                            <span class="label-help">→ Rollback Plan</span>
                         </label>
-                        <textarea class="form-control" id="rollback" rows="5" placeholder="Enter rollback steps on new lines" required></textarea>
+                        <textarea class="form-control" id="rollback" rows="5" placeholder="- Stop services if necessary
+- Restore from backup
+- Revert configuration changes
+- Restart and validate" required></textarea>
                     </div>
 
                     <!-- Known Issues Checkbox -->
@@ -629,18 +761,24 @@ textarea.form-control {
                     <!-- Known Issues (conditionally visible) -->
                     <div class="form-group hidden" id="knownIssuesGroup">
                         <label class="form-label" for="knownIssues">
-                            Known Issues
+                            <span class="label-text">Known Issues &amp; Resolution</span>
+                            <span class="label-help">→ Issues Encountered (Optional)</span>
                         </label>
-                        <textarea class="form-control" id="knownIssues" rows="4" placeholder="Describe any known issues"></textarea>
+                        <textarea class="form-control" id="knownIssues" rows="4" placeholder="Document any issues encountered during the implementation, including:
+- Error messages
+- Unexpected behavior
+- Resolution steps taken"></textarea>
                     </div>
 
                     <!-- Generate Button -->
-                    <button type="submit" class="btn btn--primary btn--full-width">Generate Notes</button>
+                    <button type="submit" class="btn btn--primary btn--full-width btn--large">
+                        <span class="btn-icon">✓</span> Generate Notes
+                    </button>
                 </form>
             </div>
 
-            <!-- Output Section -->
-            <div class="output-section">
+            <!-- Output Section - Moved to Bottom -->
+            <div class="output-section" id="notesOutput">
                 <h2 class="section-title">Generated Notes</h2>
                 
                 <div id="outputContent" class="output-content">
@@ -648,8 +786,8 @@ textarea.form-control {
                 </div>
 
                 <div class="btn-group hidden" id="actionButtons">
-                    <button class="btn btn--primary" id="copyBtn">Copy to Clipboard</button>
-                    <button class="btn btn--secondary" id="downloadBtn">Download as .txt</button>
+                    <button class="btn btn--primary" id="copyBtn"><span class="btn-icon">📋</span> Copy to Clipboard</button>
+                    <button class="btn btn--secondary" id="downloadBtn"><span class="btn-icon">💾</span> Download as .txt</button>
                 </div>
             </div>
         </div>
@@ -733,14 +871,14 @@ textarea.form-control {
             row.innerHTML = `
                 <div class="form-group db-name-field">
                     <label class="form-label" for="dbName${databaseCounter}">
-                        Database Name<span class="required">*</span>
+                        <span class="label-text">Database Name</span><span class="required">*</span>
                     </label>
                     <input type="text" class="form-control db-name-input" id="dbName${databaseCounter}" required placeholder="e.g., PRODDB01">
                 </div>
                 
                 <div class="form-group db-role-field">
                     <label class="form-label" for="dbRole${databaseCounter}">
-                        Primary/Standby<span class="required">*</span>
+                        <span class="label-text">Role</span><span class="required">*</span>
                     </label>
                     <select class="form-control db-role-input" id="dbRole${databaseCounter}" required>
                         <option value="">Select</option>
@@ -751,13 +889,13 @@ textarea.form-control {
                 
                 <div class="form-group db-hostname-field">
                     <label class="form-label" for="dbHostname${databaseCounter}">
-                        Hostname<span class="required">*</span>
+                        <span class="label-text">Hostname</span><span class="required">*</span>
                     </label>
                     <input type="text" class="form-control db-hostname-input" id="dbHostname${databaseCounter}" required placeholder="e.g., dbserver01.domain.com">
                 </div>
                 
                 <button type="button" class="btn-remove" onclick="removeDatabaseRow(${databaseCounter})">
-                    Remove
+                    <span class="btn-icon">×</span> Remove
                 </button>
             `;
             
@@ -807,7 +945,7 @@ textarea.form-control {
             if (implementationTypeData[selectedType]) {
                 // Show sub-category dropdown
                 const data = implementationTypeData[selectedType];
-                subCategoryLabel.innerHTML = `${data.label}<span class="required">*</span>`;
+                subCategoryLabel.innerHTML = `<span class="label-text">${data.label}</span><span class="required">*</span><span class="label-help">→ Specific Implementation Category</span>`;
                 
                 // Clear and populate options
                 subCategory.innerHTML = '<option value="">Select ' + data.label + '</option>';
@@ -982,10 +1120,17 @@ textarea.form-control {
             outputContent.textContent = generatedNotes;
             actionButtons.classList.remove('hidden');
 
-            // Scroll to output on mobile
-            if (window.innerWidth <= 900) {
-                outputContent.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
+            // Add highlight animation
+            const outputSection = document.getElementById('notesOutput');
+            outputSection.classList.add('highlight');
+            setTimeout(() => {
+                outputSection.classList.remove('highlight');
+            }, 600);
+
+            // Auto-scroll to generated notes section
+            setTimeout(() => {
+                outputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
         });
 
         // Copy to clipboard
