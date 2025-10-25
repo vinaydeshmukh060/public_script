@@ -1028,7 +1028,13 @@ textarea.form-control::placeholder {
                 }
             }
             
-            notes += `Date: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}\n\n`;
+            // Generate timestamp with date and time for header
+            const headerDate = new Date();
+            const dateOptions = { year: 'numeric', month: 'long', day: 'numeric' };
+            const dateStr = headerDate.toLocaleDateString('en-US', dateOptions);
+            const timeStr = headerDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+            const fullTimestamp = `${dateStr}, ${timeStr}`;
+            notes += `Implementation Notes Generated Date: ${fullTimestamp}\n\n`;
 
             // Summary
             notes += '-'.repeat(80) + '\n';
@@ -1068,6 +1074,19 @@ textarea.form-control::placeholder {
                 notes += formData.knownIssues + '\n\n';
             }
 
+            // Generate timestamp in DD/MM/YYYY, HH:MM:SS am/pm format
+            const now = new Date();
+            const day = String(now.getDate()).padStart(2, '0');
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const year = now.getFullYear();
+            let hours = now.getHours();
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            const ampm = hours >= 12 ? 'pm' : 'am';
+            hours = hours % 12 || 12;
+            const timestamp = `${day}/${month}/${year}, ${hours}:${minutes}:${seconds} ${ampm}`;
+            
+            notes += '\nImplementation Notes Generated Date: ' + timestamp + '\n\n';
             notes += '='.repeat(80) + '\n';
             notes += 'END OF IMPLEMENTATION NOTES\n';
             notes += '='.repeat(80);
