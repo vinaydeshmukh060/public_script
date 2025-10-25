@@ -319,9 +319,14 @@
         </div>
 
         <div class="card">
-            <div class="section-header">Issues & Resolution</div>
-            <div class="form-group">
-                <label>Issues Encountered (if any)</label>
+            <div class="section-header">
+                <label style="display: flex; align-items: center; margin: 0; font-size: 18px; font-weight: 600;">
+                    <input type="checkbox" id="issuesCheckbox" style="width: auto; margin-right: 12px;" onchange="toggleIssuesSection()">
+                    Known Issues & Resolution
+                </label>
+            </div>
+            <div class="form-group" id="issuesSection" style="display: none;">
+                <label>Issues Encountered</label>
                 <textarea id="issues" placeholder="Describe any issues and how they were resolved..."></textarea>
             </div>
         </div>
@@ -337,7 +342,6 @@
         <div class="card">
             <div class="button-group">
                 <button class="btn" onclick="generateNotes()">Generate Notes</button>
-                <button class="btn btn-secondary" onclick="generateShellScript()">Generate Shell Script Template</button>
                 <button class="btn btn-secondary" onclick="clearForm()">Clear Form</button>
             </div>
         </div>
@@ -354,6 +358,12 @@
 
     <script>
         let stepCount = 1;
+
+        function toggleIssuesSection() {
+            const checkbox = document.getElementById('issuesCheckbox');
+            const section = document.getElementById('issuesSection');
+            section.style.display = checkbox.checked ? 'block' : 'none';
+        }
 
         function addStep() {
             stepCount++;
@@ -473,7 +483,8 @@
             const summary = document.getElementById('summary').value.trim();
             const preChecks = document.getElementById('preChecks').value.trim();
             const validation = document.getElementById('validation').value.trim();
-            const issues = document.getElementById('issues').value;
+            const issuesCheckbox = document.getElementById('issuesCheckbox').checked;
+            const issues = issuesCheckbox ? document.getElementById('issues').value : '';
             const rollback = document.getElementById('rollback').value.trim();
 
             // Validate steps
@@ -547,11 +558,13 @@ POST-IMPLEMENTATION VALIDATION
 
 ${validation || 'No validation documented'}
 
+${issuesCheckbox ? `
 ================================================================================
-ISSUES & RESOLUTION
+KNOWN ISSUES & RESOLUTION
 ================================================================================
 
-${issues || 'No issues reported'}
+${issues || 'No issues documented'}
+` : ''}
 
 ================================================================================
 ROLLBACK PLAN
@@ -766,6 +779,10 @@ echo ""
                     </div>
                 `;
                 stepCount = 1;
+                
+                // Reset issues checkbox
+                document.getElementById('issuesCheckbox').checked = false;
+                document.getElementById('issuesSection').style.display = 'none';
                 
                 // Reset database names
                 const dbContainer = document.getElementById('dbNamesContainer');
