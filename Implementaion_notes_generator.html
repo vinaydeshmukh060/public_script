@@ -455,17 +455,20 @@
             // Validate database names
             const dbItems = Array.from(document.querySelectorAll('.db-item'));
             let hasEmptyDb = false;
-            const dbNames = dbItems.map(item => {
+            const dbNames = dbItems.map((item, index) => {
                     const name = item.querySelector('.db-input').value.trim();
                     const type = item.querySelector('.db-type').value;
                     const hostname = item.querySelector('.hostname-input').value.trim();
                     if (!name || !hostname) {
                         hasEmptyDb = true;
                     }
-                    return name ? `${name} (${type}) (${hostname || 'hostname-not-specified'})` : '';
+                    if (name) {
+                        return `${name} (${type}) (${hostname || 'hostname-not-specified'})`;
+                    }
+                    return '';
                 })
                 .filter(val => val !== '')
-                .join(', ');
+                .join('\n             ');
             
             const summary = document.getElementById('summary').value.trim();
             const preChecks = document.getElementById('preChecks').value.trim();
