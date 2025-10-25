@@ -265,25 +265,15 @@
             </div>
 
             <div class="form-group">
-                <label>Hostname(s)</label>
-                <div id="hostnameContainer">
-                    <div class="hostname-item" style="display: flex; gap: 8px; margin-bottom: 8px;">
-                        <input type="text" class="hostname-input" placeholder="e.g., dbserver01.domain.com" style="flex: 1;">
-                        <button class="btn btn-secondary" style="padding: 8px 16px; margin: 0;" onclick="removeHostname(this)">Remove</button>
-                    </div>
-                </div>
-                <button class="btn btn-secondary add-step-btn" onclick="addHostname()">+ Add Hostname</button>
-            </div>
-
-            <div class="form-group">
-                <label>Database Names</label>
+                <label>Database Information <span style="color: rgba(192, 21, 47, 1);">*</span></label>
                 <div id="dbNamesContainer">
                     <div class="db-item" style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
-                        <input type="text" class="db-input" placeholder="e.g., PRODDB01" style="flex: 1;">
+                        <input type="text" class="db-input" placeholder="e.g., PRODDB01" style="flex: 2;">
                         <select class="db-type" style="width: 130px; margin: 0;">
                             <option value="Primary">Primary</option>
                             <option value="Standby">Standby</option>
                         </select>
+                        <input type="text" class="hostname-input" placeholder="e.g., dbserver01.domain.com" style="flex: 2;">
                         <button class="btn btn-secondary" style="padding: 8px 16px; margin: 0;" onclick="removeDbName(this)">Remove</button>
                     </div>
                 </div>
@@ -291,7 +281,7 @@
             </div>
 
             <div class="form-group">
-                <label>Summary / Objective</label>
+                <label>Summary / Objective <span style="color: rgba(192, 21, 47, 1);">*</span></label>
                 <textarea id="summary" placeholder="Brief description of the implementation..."></textarea>
             </div>
         </div>
@@ -299,13 +289,13 @@
         <div class="card">
             <div class="section-header">Pre-Implementation Checks</div>
             <div class="form-group">
-                <label>Pre-requisites & Validation</label>
+                <label>Pre-requisites & Validation <span style="color: rgba(192, 21, 47, 1);">*</span></label>
                 <textarea id="preChecks" placeholder="- Verified current database version&#10;- Confirmed backup completed successfully&#10;- Validated sufficient space available&#10;- Reviewed impact analysis"></textarea>
             </div>
         </div>
 
         <div class="card">
-            <div class="section-header">Implementation Steps</div>
+            <div class="section-header">Implementation Steps <span style="color: rgba(192, 21, 47, 1);">*</span></div>
             <div id="stepsContainer">
                 <div class="step-item">
                     <div class="step-number">1</div>
@@ -323,7 +313,7 @@
         <div class="card">
             <div class="section-header">Post-Implementation Validation</div>
             <div class="form-group">
-                <label>Validation Steps & Results</label>
+                <label>Validation Steps & Results <span style="color: rgba(192, 21, 47, 1);">*</span></label>
                 <textarea id="validation" placeholder="- Verified service is running&#10;- Confirmed application connectivity&#10;- Validated data integrity&#10;- Performance checks completed"></textarea>
             </div>
         </div>
@@ -339,7 +329,7 @@
         <div class="card">
             <div class="section-header">Rollback Plan</div>
             <div class="form-group">
-                <label>Rollback Procedure</label>
+                <label>Rollback Procedure <span style="color: rgba(192, 21, 47, 1);">*</span></label>
                 <textarea id="rollback" placeholder="Steps to rollback changes if needed..."></textarea>
             </div>
         </div>
@@ -409,11 +399,12 @@
             dbDiv.className = 'db-item';
             dbDiv.style.cssText = 'display: flex; gap: 8px; margin-bottom: 8px; align-items: center;';
             dbDiv.innerHTML = `
-                <input type="text" class="db-input" placeholder="e.g., PRODDB02" style="flex: 1;">
+                <input type="text" class="db-input" placeholder="e.g., PRODDB02" style="flex: 2;">
                 <select class="db-type" style="width: 130px; margin: 0;">
                     <option value="Primary">Primary</option>
                     <option value="Standby">Standby</option>
                 </select>
+                <input type="text" class="hostname-input" placeholder="e.g., dbserver02.domain.com" style="flex: 2;">
                 <button class="btn btn-secondary" style="padding: 8px 16px; margin: 0;" onclick="removeDbName(this)">Remove</button>
             `;
             container.appendChild(dbDiv);
@@ -460,28 +451,62 @@
         function generateNotes() {
             const implType = document.getElementById('implType').value;
             const environment = document.getElementById('environment').value;
-            const hostnames = Array.from(document.querySelectorAll('.hostname-input'))
-                .map(input => input.value.trim())
-                .filter(val => val !== '')
-                .join(', ');
-            const dbNames = Array.from(document.querySelectorAll('.db-item'))
-                .map(item => {
+            
+            // Validate database names
+            const dbItems = Array.from(document.querySelectorAll('.db-item'));
+            let hasEmptyDb = false;
+            const dbNames = dbItems.map(item => {
                     const name = item.querySelector('.db-input').value.trim();
                     const type = item.querySelector('.db-type').value;
-                    return name ? `${name} (${type})` : '';
+                    const hostname = item.querySelector('.hostname-input').value.trim();
+                    if (!name || !hostname) {
+                        hasEmptyDb = true;
+                    }
+                    return name ? `${name} (${type}) (${hostname || 'hostname-not-specified'})` : '';
                 })
                 .filter(val => val !== '')
                 .join(', ');
-            const summary = document.getElementById('summary').value;
-            const preChecks = document.getElementById('preChecks').value;
-            const validation = document.getElementById('validation').value;
+            
+            const summary = document.getElementById('summary').value.trim();
+            const preChecks = document.getElementById('preChecks').value.trim();
+            const validation = document.getElementById('validation').value.trim();
             const issues = document.getElementById('issues').value;
-            const rollback = document.getElementById('rollback').value;
+            const rollback = document.getElementById('rollback').value.trim();
 
-            const steps = Array.from(document.querySelectorAll('.step-input'))
+            // Validate steps
+            const stepInputs = Array.from(document.querySelectorAll('.step-input'));
+            const hasEmptyStep = stepInputs.some(input => !input.value.trim());
+            
+            const steps = stepInputs
                 .map((input, index) => `${index + 1}. ${input.value}`)
                 .filter(step => step.trim() !== `${step.split('.')[0]}.`)
                 .join('\n\n');
+
+            // Validation checks
+            if (hasEmptyDb) {
+                alert('Error: All database names and hostnames are mandatory. Please fill in all fields.');
+                return;
+            }
+            if (!summary) {
+                alert('Error: Summary/Objective is mandatory. Please provide a summary.');
+                return;
+            }
+            if (!preChecks) {
+                alert('Error: Pre-Implementation Checks are mandatory. Please document pre-checks.');
+                return;
+            }
+            if (hasEmptyStep) {
+                alert('Error: All implementation steps are mandatory. Please fill in all steps.');
+                return;
+            }
+            if (!validation) {
+                alert('Error: Post-Implementation Validation is mandatory. Please document validation.');
+                return;
+            }
+            if (!rollback) {
+                alert('Error: Rollback Plan is mandatory. Please provide rollback procedure.');
+                return;
+            }
 
             const timestamp = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 
@@ -492,7 +517,6 @@
 
 Implementation Type: ${implType}
 Environment: ${environment}
-Hostname(s): ${hostnames || 'N/A'}
 Database(s): ${dbNames || 'N/A'}
 Date/Time: ${timestamp}
 
@@ -740,24 +764,16 @@ echo ""
                 `;
                 stepCount = 1;
                 
-                // Reset hostnames
-                const hostnameContainer = document.getElementById('hostnameContainer');
-                hostnameContainer.innerHTML = `
-                    <div class="hostname-item" style="display: flex; gap: 8px; margin-bottom: 8px;">
-                        <input type="text" class="hostname-input" placeholder="e.g., dbserver01.domain.com" style="flex: 1;">
-                        <button class="btn btn-secondary" style="padding: 8px 16px; margin: 0;" onclick="removeHostname(this)">Remove</button>
-                    </div>
-                `;
-                
                 // Reset database names
                 const dbContainer = document.getElementById('dbNamesContainer');
                 dbContainer.innerHTML = `
                     <div class="db-item" style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
-                        <input type="text" class="db-input" placeholder="e.g., PRODDB01" style="flex: 1;">
+                        <input type="text" class="db-input" placeholder="e.g., PRODDB01" style="flex: 2;">
                         <select class="db-type" style="width: 130px; margin: 0;">
                             <option value="Primary">Primary</option>
                             <option value="Standby">Standby</option>
                         </select>
+                        <input type="text" class="hostname-input" placeholder="e.g., dbserver01.domain.com" style="flex: 2;">
                         <button class="btn btn-secondary" style="padding: 8px 16px; margin: 0;" onclick="removeDbName(this)">Remove</button>
                     </div>
                 `;
