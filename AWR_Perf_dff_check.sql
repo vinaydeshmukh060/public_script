@@ -1,5 +1,5 @@
 -- ================================================================
--- Perf_dff_check.sql
+-- AWR_Perf_dff_check.sql
 --
 -- Author      : vinay v deshmukh
 -- Description : AWR Automated Analysis Tool - Complete Period Comparison
@@ -564,3 +564,4 @@ SET FEEDBACK ON
 SET VERIFY ON
 
 EXIT SUCCESS
+
