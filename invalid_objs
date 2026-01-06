@@ -1,0 +1,103 @@
+#!/bin/bash
+
+if [ $# -ne 1 ]; then
+  echo "Usage: $0 <ORACLE_SID>"
+  exit 1
+fi
+
+ORACLE_SID=$1
+export ORACLE_SID
+
+# Check if instance is running
+if ! pgrep -f "ora_pmon_${ORACLE_SID}" > /dev/null; then
+  echo "Error: Instance ${ORACLE_SID} is not running."
+  exit 1
+fi
+
+# Function to execute SQL and get single value (trimmed)
+get_single() {
+  sqlplus -s / as sysdba << EOF | awk '/^[0-9]+$/ {print; exit}'
+set heading off feedback off pagesize 0 echo off trimspool on
+$1
+EOF
+}
+
+# Function to count lines matching pattern
+get_count() {
+  sqlplus -s / as sysdba << EOF | grep -c "$2" || echo 0
+set pagesize 0 echo off
+$1
+EOF
+}
+
+# Function to run report query and capture output
+run_report() {
+  sqlplus -s / as sysdba << EOF
+set pagesize 0 echo off linesize 200 trimspool on
+$1
+EOF
+}
+
+echo "Instance: ${ORACLE_SID}"
+
+# Check DB open mode
+DB_OPEN_MODE=$(get_single "select open_mode from v\$database;")
+if [ "$DB_OPEN_MODE" != "READ WRITE" ]; then
+  echo "Warning: Database open mode is $DB_OPEN_MODE (skipping checks)."
+  exit 1
+fi
+echo "Database Type: OPEN READ WRITE"
+
+# Check if CDB
+IS_CDB=$(get_single "select case when cdb='YES' then 1 else 0 end from v\$database;")
+if [ "$IS_CDB" = "0" ]; then
+  CONTAINER="Non-CDB (Root)"
+  SESSION_SET=""
+else
+  echo "CDB detected."
+  PDB_NAME=$(get_single "select name from v\$pdbs where open_mode='READ WRITE' and name not like 'PDB\$SEED' and rownum=1;")
+  if [ -z "$PDB_NAME" ] || [ "$PDB_NAME" = "" ]; then
+    CONTAINER="CDB\$ROOT"
+  else
+    CONTAINER="$PDB_NAME"
+    sqlplus / as sysdba << EOF >/dev/null 2>&1
+alter session set container = $PDB_NAME;
+EOF
+    SESSION_SET="alter session set container = $PDB_NAME;"
+  fi
+  # Verify container open mode
+  CONTAINER_OPEN=$(get_single "$SESSION_SET select open_mode from v\$pdbs where name=upper('$CONTAINER');" 2>/dev/null || echo "READ WRITE")
+  if [ "$CONTAINER_OPEN" != "READ WRITE" ]; then
+    echo "Warning: $CONTAINER open mode is $CONTAINER_OPEN (skipping)."
+    exit 1
+  fi
+  echo "Checking Container: $CONTAINER (READ WRITE)"
+fi
+
+# Total counts
+TOTAL_OBJ_COUNT=$(get_single "$SESSION_SET select count(*) from dba_objects where status = 'INVALID';")
+TOTAL_COMP_COUNT=$(get_count "$SESSION_SET select status from dba_registry where status != 'VALID';" "INVALID")
+
+echo "Invalid Objects Count: ${TOTAL_OBJ_COUNT}"
+echo "Invalid Components Count: ${TOTAL_COMP_COUNT}"
+
+# Detailed invalid objects if any
+if [ "$TOTAL_OBJ_COUNT" -gt 0 ]; then
+  echo ""
+  echo "=== Invalid Objects by Owner/Type ==="
+  run_report "$SESSION_SET select owner, object_type, count(*) as cnt from dba_objects where status = 'INVALID' group by owner, object_type order by owner, object_type;"
+  
+  echo ""
+  echo "=== Detailed Invalid Objects List ==="
+  run_report "$SESSION_SET column owner format a20; column object_type format a20; column object_name format a40; select owner, object_type, object_name from dba_objects where status = 'INVALID' order by owner, object_type, object_name;"
+fi
+
+# Reset to CDB$ROOT if needed
+if [ "$IS_CDB" = "1" ] && [ "$CONTAINER" != "CDB\$ROOT" ]; then
+  sqlplus / as sysdba << EOF >/dev/null 2>&1
+alter session set container = CDB\$ROOT;
+EOF
+fi
+
+echo ""
+echo "Check complete."
