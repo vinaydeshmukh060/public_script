@@ -1,21 +1,18 @@
 #!/bin/bash
 ###############################################################################
 # Script Name : db_hc_experi.sh
-# Version     : 2.2 FINAL
-# Purpose     : Oracle DB Health Check (CDB + PDB aware, DG aware)
+# Version     : 2.8 FINAL
+# Purpose     : Oracle DB Health Check (RAC / CDB / PDB aware)
 ###############################################################################
 
 set -euo pipefail
-trap 'echo "[FATAL] Line=$LINENO Cmd=$BASH_COMMAND"; exit 1' ERR
+trap 'echo "[FATAL] Line=$LINENO Cmd=$BASH_COMMAND"; exit 2' ERR
 
 #######################################
 # CONFIGURATION
 #######################################
 TBS_WARN=80
 TBS_CRIT=90
-DG_WARN_MIN=10
-DG_CRIT_MIN=30
-ALERT_LOOKBACK_HOURS=24
 LOG_DIR=/stagingPC/Monitoring/logs
 
 #######################################
@@ -45,7 +42,7 @@ report() {
 
 sql_exec() {
 sqlplus -s / as sysdba <<EOF
-set pages 0 feed off head off verify off echo off
+set pages 0 feed off head off verify off echo off trimspool on lines 32767
 whenever sqlerror exit failure
 $1
 EOF
@@ -87,137 +84,187 @@ echo "===================================================="
 DB_NAME=$(sql_exec "select name from v\$database;")
 DB_ROLE=$(sql_exec "select database_role from v\$database;")
 IS_CDB=$(sql_exec "select cdb from v\$database;")
-IS_RAC=$(sql_exec "
-select case when count(*) > 1 then 'YES' else 'NO' end
-from gv\$instance;
-")
+IS_RAC=$(sql_exec "select case when count(*)>1 then 'YES' else 'NO' end from gv\$instance;")
 
 report "INFO" "DB=$DB_NAME ROLE=$DB_ROLE CDB=$IS_CDB RAC=$IS_RAC"
 
 #######################################
-# DATAGUARD CHECK
+# RAC INSTANCE STATUS
 #######################################
-if [[ "$DB_ROLE" =~ PRIMARY|STANDBY ]]; then
-  sql_exec "
-select name, value
-from v\$dataguard_stats
-where name in ('transport lag','apply lag');
-" | while read -r name value; do
-    [[ -z "$value" ]] && continue
-    mins=$(echo "$value" | awk -F: '{print ($1*60)+$2}')
+if [[ "$IS_RAC" == "YES" ]]; then
+  report "INFO" "RAC Instance Status"
 
-    if [[ "$mins" -ge "$DG_CRIT_MIN" ]]; then
-      report "CRITICAL" "DG $name = $value"
-    elif [[ "$mins" -ge "$DG_WARN_MIN" ]]; then
-      report "WARNING" "DG $name = $value"
+  sql_exec "
+  select inst_id, instance_name, host_name, status,
+         to_char(startup_time,'YYYY-MM-DD HH24:MI')
+  from gv\$instance
+  order by inst_id;
+  " | while read -r inst name host status stime; do
+      report "INFO" "INST=$inst NAME=$name HOST=$host STATUS=$status STARTED=$stime"
+  done
+fi
+
+#######################################
+# RAC SERVICES STATUS
+#######################################
+if [[ "$IS_RAC" == "YES" ]]; then
+  report "INFO" "RAC Services Status"
+
+  sql_exec "
+  select name, inst_id
+  from gv\$active_services
+  order by name, inst_id;
+  " | while read -r svc inst; do
+      report "INFO" "SERVICE=$svc RUNNING_ON_INST=$inst"
+  done
+fi
+
+#######################################
+# HUGEPAGES CHECK
+#######################################
+if [[ -f /proc/meminfo ]]; then
+  HP_TOTAL=$(awk '/HugePages_Total/ {print $2}' /proc/meminfo)
+  HP_FREE=$(awk '/HugePages_Free/ {print $2}' /proc/meminfo)
+  HP_RSVD=$(awk '/HugePages_Rsvd/ {print $2}' /proc/meminfo)
+
+  if [[ "$HP_TOTAL" -eq 0 ]]; then
+    report "CRITICAL" "HugePages NOT configured"
+  elif [[ "$HP_FREE" -eq 0 ]]; then
+    report "OK" "HugePages fully allocated (total=$HP_TOTAL)"
+  else
+    report "WARNING" "HugePages free=$HP_FREE reserved=$HP_RSVD total=$HP_TOTAL"
+  fi
+fi
+
+#######################################
+# USE_LARGE_PAGES PARAMETER
+#######################################
+ULP_VAL=$(sql_exec "
+select nvl(value,'UNSET')
+from v\$parameter
+where name='use_large_pages';
+")
+
+case "$ULP_VAL" in
+  ONLY|TRUE) report "OK" "USE_LARGE_PAGES=$ULP_VAL" ;;
+  *) report "CRITICAL" "USE_LARGE_PAGES=$ULP_VAL (Expected ONLY/TRUE)" ;;
+esac
+
+#######################################
+# RAC PARAMETER CONSISTENCY
+#######################################
+if [[ "$IS_RAC" == "YES" ]]; then
+  for P in use_large_pages memory_target sga_target sga_max_size cluster_database; do
+    CNT=$(sql_exec "
+    select count(distinct value)
+    from gv\$parameter where name='$P';
+    ")
+
+    if [[ "$CNT" -gt 1 ]]; then
+      report "CRITICAL" "RAC parameter $P inconsistent"
+      sql_exec "
+      select inst_id, value
+      from gv\$parameter where name='$P'
+      order by inst_id;
+      " | while read -r line; do report "INFO" "$P -> $line"; done
     else
-      report "OK" "DG $name = $value"
+      VAL=$(sql_exec "
+      select distinct value
+      from gv\$parameter where name='$P';
+      ")
+      report "OK" "RAC parameter $P consistent ($VAL)"
     fi
   done
+fi
+
+#######################################
+# TABLESPACE CHECK
+#######################################
+check_tablespaces() {
+  local C="$1"
+  sql_exec "
+  select tablespace_name, round(used_percent,2)
+  from dba_tablespace_usage_metrics
+  where used_percent >= $TBS_WARN;
+  " | while read -r tbs used; do
+    [[ -z "$tbs" ]] && continue
+    if (( $(echo "$used >= $TBS_CRIT" | bc -l) )); then
+      report "CRITICAL" "[$C] TBS=$tbs USED=${used}%"
+    else
+      report "WARNING"  "[$C] TBS=$tbs USED=${used}%"
+    fi
+  done
+}
+
+if [[ "$IS_CDB" == "YES" ]]; then
+  sql_exec "alter session set container=CDB\$ROOT;"
+  check_tablespaces "CDB\$ROOT"
+
+  sql_exec "select name from v\$pdbs where open_mode='READ WRITE';" |
+  while read -r pdb; do
+    sql_exec "alter session set container=$pdb;"
+    check_tablespaces "$pdb"
+  done
 else
-  report "INFO" "Data Guard not configured – DG checks skipped"
+  check_tablespaces "NON-CDB"
+fi
+
+#######################################
+# BLOCKING SESSIONS (RAC FIXED)
+#######################################
+LOCK_CNT=$(sql_exec "select count(*) from gv\$session where blocking_session is not null;")
+
+if [[ "$LOCK_CNT" -eq 0 ]]; then
+  report "OK" "No blocking sessions"
+else
+  report "WARNING" "Blocking sessions detected"
+  sql_exec "
+  select
+   'BLOCKER '||b.inst_id||':'||b.sid||','||b.serial#||
+   ' -> BLOCKED '||w.inst_id||':'||w.sid||','||w.serial#
+  from gv\$session w
+  join gv\$session b
+    on b.sid = w.blocking_session
+   and b.inst_id = w.blocking_instance;
+  " | while read -r line; do report "INFO" "$line"; done
+fi
+
+#######################################
+# RAC LOAD SUMMARY (DB TIME)
+#######################################
+if [[ "$IS_RAC" == "YES" ]]; then
+  report "INFO" "RAC Load Summary (DB Time)"
+
+  sql_exec "
+  select inst_id, round(value/100,2)
+  from gv\$sysstat
+  where name='DB time';
+  " | while read -r inst val; do
+      report "INFO" "INST=$inst DB_TIME=${val}"
+  done
 fi
 
 #######################################
 # LMS CHECK
 #######################################
 if [[ "$IS_RAC" == "YES" ]]; then
-  ps -eLo comm | grep -q ora_lms \
-    && report "OK" "LMS processes running" \
-    || report "CRITICAL" "LMS processes missing"
-else
-  report "INFO" "Non-RAC DB – LMS check skipped"
-fi
+  LMS_RAW=$(ps -eLo user,pid,cls,priority,cmd | grep ora_lms | grep -v ASM | grep -v grep || true)
 
-#######################################
-# HUGEPAGES
-#######################################
-total=$(awk '/HugePages_Total/ {print $2}' /proc/meminfo)
-free=$(awk '/HugePages_Free/ {print $2}' /proc/meminfo)
-
-if [[ "$total" -eq 0 ]]; then
-  report "CRITICAL" "HugePages not configured"
-elif [[ "$free" -eq 0 ]]; then
-  report "OK" "HugePages fully utilized"
-else
-  report "WARNING" "HugePages free=$free total=$total"
-fi
-
-#######################################
-# TABLESPACE CHECK (CDB + PDB AWARE)
-#######################################
-check_tablespaces() {
-  local container="$1"
-
-  sql_exec "
-select tablespace_name, round(used_percent)
-from dba_tablespace_usage_metrics;
-" | while read -r tbs used; do
-    [[ ! "$used" =~ ^[0-9]+$ ]] && continue
-
-    if [[ "$used" -ge "$TBS_CRIT" ]]; then
-      report "CRITICAL" "[$container] Tablespace $tbs ${used}%"
-    elif [[ "$used" -ge "$TBS_WARN" ]]; then
-      report "WARNING" "[$container] Tablespace $tbs ${used}%"
-    else
-      report "OK" "[$container] Tablespace $tbs ${used}%"
-    fi
-  done
-}
-
-if [[ "$IS_CDB" == "YES" ]]; then
-
-  # ---- CDB$ROOT ----
-  sql_exec "alter session set container=CDB\$ROOT;"
-  check_tablespaces "CDB\$ROOT"
-
-  # ---- PDBs ----
-  sql_exec "
-select name
-from v\$pdbs
-where open_mode = 'READ WRITE';
-" | while read -r pdb; do
-      sql_exec "alter session set container=$pdb;"
-      check_tablespaces "$pdb"
-  done
-
-else
-  check_tablespaces "NON-CDB"
-fi
-
-#######################################
-# ALERT LOG (SHOW ERRORS)
-#######################################
-trace=$(sql_exec "
-select value from v\$diag_info where name='Diag Trace';
-")
-inst=$(sql_exec "select instance_name from v\$instance;")
-alert="${trace}/alert_${inst}.log"
-
-since=$(date -d "$ALERT_LOOKBACK_HOURS hours ago" '+%Y-%m-%d %H:%M:%S')
-TMP_ALERT="/tmp/alert_${ORACLE_SID}_$$"
-
-if [[ ! -f "$alert" ]]; then
-  report "WARNING" "Alert log not found: $alert"
-else
-  awk -v s="$since" '$0>=s && /ORA-|ERROR|FATAL/' "$alert" > "$TMP_ALERT" || true
-
-  if [[ -s "$TMP_ALERT" ]]; then
-    report "WARNING" "Alert log errors in last ${ALERT_LOOKBACK_HOURS}h"
-    awk 'NR<=5 {print "           " $0}' "$TMP_ALERT"
-
-    echo "---- Alert log errors (last ${ALERT_LOOKBACK_HOURS}h) ----" >> "$LOG_FILE"
-    cat "$TMP_ALERT" >> "$LOG_FILE"
-    echo "---------------------------------------------------------" >> "$LOG_FILE"
+  if [[ -z "$LMS_RAW" ]]; then
+    report "CRITICAL" "No LMS processes found"
   else
-    report "OK" "No alert log errors in last ${ALERT_LOOKBACK_HOURS}h"
+    echo "$LMS_RAW" | awk '{print $NF}' | sort -u | while read -r LMS; do
+      RR_CNT=$(echo "$LMS_RAW" | grep "$LMS" | awk '$3=="RR"' | wc -l)
+      [[ "$RR_CNT" -ge 1 ]] \
+        && report "OK" "LMS $LMS has RR thread" \
+        || report "WARNING" "LMS $LMS has NO RR thread"
+    done
   fi
 fi
-
-rm -f "$TMP_ALERT"
 
 #######################################
 # END
 #######################################
 report "INFO" "Health check completed"
 report "INFO" "Log file: $LOG_FILE"
+exit 0
