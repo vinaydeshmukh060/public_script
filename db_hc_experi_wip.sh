@@ -1,7 +1,7 @@
 #!/bin/bash
 ###############################################################################
 # Script Name : db_hc_experi.sh
-# Version     : 2.3 FINAL
+# Version     : 2.5 FINAL
 # Purpose     : Oracle DB Health Check (RAC / CDB / PDB aware)
 ###############################################################################
 
@@ -13,9 +13,6 @@ trap 'echo "[FATAL] Line=$LINENO Cmd=$BASH_COMMAND"; exit 1' ERR
 #######################################
 TBS_WARN=80
 TBS_CRIT=90
-DG_WARN_MIN=10
-DG_CRIT_MIN=30
-ALERT_LOOKBACK_HOURS=24
 LOG_DIR=/stagingPC/Monitoring/logs
 
 #######################################
@@ -45,7 +42,7 @@ report() {
 
 sql_exec() {
 sqlplus -s / as sysdba <<EOF
-set pages 0 feed off head off verify off echo off trimspool on
+set pages 0 feed off head off verify off echo off trimspool on lines 32767
 whenever sqlerror exit failure
 $1
 EOF
@@ -107,7 +104,7 @@ order by used_percent desc;
     if (( $(echo "$used >= $TBS_CRIT" | bc -l) )); then
       report "CRITICAL" "[$container] TBS=$tbs USED=${used}%"
     else
-      report "WARNING" "[$container] TBS=$tbs USED=${used}%"
+      report "WARNING"  "[$container] TBS=$tbs USED=${used}%"
     fi
   done
 }
@@ -126,35 +123,52 @@ else
 fi
 
 #######################################
-# FRA CHECK
+# FRA CHECK (SINGLE ROW – NO DUPLICATES)
 #######################################
-sql_exec "
+FRA_OUT=$(sql_exec "
 select
- round(space_limit/1024/1024/1024,2),
- round(space_used/1024/1024/1024,2),
- round(space_reclaimable/1024/1024/1024,2),
- round((space_limit-space_used+space_reclaimable)*100/space_limit,2)
-from v\$recovery_file_dest;
-" | while read -r size used reclaim free; do
-  report "INFO" "FRA Size=${size}GB Used=${used}GB Reclaimable=${reclaim}GB Free=${free}%"
-done
+ trim(to_char(nvl(space_limit/1024/1024/1024,0),'999990.99'))||'|'||
+ trim(to_char(nvl(space_used/1024/1024/1024,0),'999990.99'))||'|'||
+ trim(to_char(nvl(space_reclaimable/1024/1024/1024,0),'999990.99'))||'|'||
+ case
+   when space_limit > 0 then
+     trim(to_char(
+       (space_limit-space_used+space_reclaimable)*100/space_limit,
+       '999990.99'
+     ))
+   else '0'
+ end
+from v\$recovery_file_dest
+where space_limit is not null
+fetch first 1 row only;
+")
+
+if [[ -n "$FRA_OUT" ]]; then
+  IFS='|' read -r FRA_SIZE FRA_USED FRA_RECLAIM FRA_FREE <<< "$FRA_OUT"
+  report "INFO" "FRA Size=${FRA_SIZE}GB Used=${FRA_USED}GB Reclaimable=${FRA_RECLAIM}GB Free=${FRA_FREE}%"
+else
+  report "INFO" "FRA not configured"
+fi
 
 #######################################
-# FRA ARCHIVE & FLASHBACK USAGE
+# FRA ARCHIVE & FLASHBACK USAGE (ONCE)
 #######################################
-sql_exec "
+FRA_AF=$(sql_exec "
 select
- sum(case when file_type='ARCHIVED LOG' then percent_space_used else 0 end),
- sum(case when file_type='FLASHBACK LOG' then percent_space_used else 0 end)
+ trim(to_char(nvl(sum(case when file_type='ARCHIVED LOG' then percent_space_used end),0),'999990.99'))||'|'||
+ trim(to_char(nvl(sum(case when file_type='FLASHBACK LOG' then percent_space_used end),0),'999990.99'))
 from v\$flash_recovery_area_usage;
-" | while read -r arch fb; do
-  report "INFO" "FRA Usage ARCHIVE=${arch}% FLASHBACK=${fb}%"
-done
+")
+
+IFS='|' read -r ARCH_PCT FB_PCT <<< "$FRA_AF"
+report "INFO" "FRA Usage ARCHIVE=${ARCH_PCT}% FLASHBACK=${FB_PCT}%"
 
 #######################################
-# LOCKING SESSION CHECK (RAC AWARE)
+# LOCKING SESSION CHECK (BLOCKER -> BLOCKED)
 #######################################
-LOCK_CNT=$(sql_exec "select count(*) from gv\$lock where block=1;")
+LOCK_CNT=$(sql_exec "
+select count(*) from gv\$lock where block = 1;
+")
 
 if [[ "$LOCK_CNT" -eq 0 ]]; then
   report "OK" "No blocking sessions"
@@ -162,42 +176,37 @@ else
   report "WARNING" "Blocking sessions detected"
   sql_exec "
 select
- s.inst_id,
- s.sid||','||s.serial#,
- s.username,
- s.event,
- s.seconds_in_wait
-from gv\$session s
-where s.blocking_session is not null;
+ 'BLOCKER '||b.sid||','||b.serial#||' ('||b.username||') -> '||
+ 'BLOCKED '||w.sid||','||w.serial#||' ('||w.username||')'
+from gv\$session b
+join gv\$session w
+  on b.inst_id = w.inst_id
+ and b.sid     = w.blocking_session
+where w.blocking_session is not null;
 " | while read -r line; do
-    report "INFO" "LOCK -> $line"
+    report "INFO" "$line"
   done
 fi
 
 #######################################
-# LMS CHECK (STRICT RR VALIDATION)
+# LMS CHECK (PER-LMS RR VALIDATION)
 #######################################
 if [[ "$IS_RAC" == "YES" ]]; then
-  LMS_OUT=$(ps -eLo user,pid,cls,priority,cmd | grep ora_lms | grep -v ASM | grep -v grep)
+  LMS_RAW=$(ps -eLo user,pid,cls,priority,cmd | grep ora_lms | grep -v ASM | grep -v grep)
 
-  if [[ -z "$LMS_OUT" ]]; then
+  if [[ -z "$LMS_RAW" ]]; then
     report "CRITICAL" "No LMS processes found"
   else
-    LMS_CNT=$(echo "$LMS_OUT" | wc -l)
-    RR_CNT=$(echo "$LMS_OUT" | awk '$3=="RR"' | wc -l)
+    echo "$LMS_RAW" | awk '{print $NF}' | sort -u | while read -r LMS_NAME; do
+      LMS_LINES=$(echo "$LMS_RAW" | grep "$LMS_NAME")
+      RR_COUNT=$(echo "$LMS_LINES" | awk '$3=="RR"' | wc -l)
 
-    echo "$LMS_OUT" | while read -r user pid cls prio cmd; do
-      lms=$(echo "$cmd" | awk '{print $1}')
-      if [[ "$cls" == "RR" ]]; then
-        report "OK" "LMS $lms CLS=RR PRI=$prio"
+      if [[ "$RR_COUNT" -ge 1 ]]; then
+        report "OK" "LMS $LMS_NAME has RR thread"
       else
-        report "CRITICAL" "LMS $lms CLS=$cls (Expected RR)"
+        report "WARNING" "LMS $LMS_NAME has NO RR thread"
       fi
     done
-
-    if [[ "$LMS_CNT" -ne "$RR_CNT" ]]; then
-      report "CRITICAL" "LMS RR mismatch LMS=$LMS_CNT RR=$RR_CNT"
-    fi
   fi
 else
   report "INFO" "Non-RAC DB – LMS check skipped"
