@@ -218,7 +218,79 @@ if [[ "$IS_RAC" == "YES" ]]; then
 fi
 
 #######################################
-# TABLESPACE, BLOCKING, LOAD, LMS
-# (UNCHANGED – EXACTLY AS WORKING)
+# TABLESPACE CHECK
 #######################################
-# ... continues exactly as in your pasted script ...
+check_tablespaces() {
+  local C="$1"
+  sql_exec "
+    select tablespace_name, round(used_percent,2)
+    from dba_tablespace_usage_metrics
+    where used_percent >= $TBS_WARN;
+  " | while read -r t u; do
+    (( $(echo "$u >= $TBS_CRIT" | bc) )) \
+      && report "CRITICAL" "[$C] $t ${u}%" \
+      || report "WARNING"  "[$C] $t ${u}%"
+  done
+}
+
+if [[ "$IS_CDB" == "YES" ]]; then
+  sql_exec "alter session set container=CDB\$ROOT;"
+  check_tablespaces "CDB\$ROOT"
+  sql_exec "select name from v\$pdbs where open_mode='READ WRITE';" |
+  while read -r pdb; do
+    sql_exec "alter session set container=$pdb;"
+    check_tablespaces "$pdb"
+  done
+else
+  check_tablespaces "NON-CDB"
+fi
+
+#######################################
+# BLOCKING SESSIONS
+#######################################
+LOCKS=$(sql_exec "select count(*) from gv\$session where blocking_session is not null;")
+[[ "$LOCKS" -eq 0 ]] && report "OK" "No blocking sessions" || {
+  report "WARNING" "Blocking sessions detected"
+}
+
+#######################################
+# RAC LOAD SUMMARY
+#######################################
+if [[ "$IS_RAC" == "YES" ]]; then
+  report "INFO" "RAC Load Summary (DB Time)"
+  sql_exec "
+    select inst_id, round(value/100,2)
+    from gv\$sysstat where name='DB time';
+  " | while read -r i v; do
+      report "INFO" "INST=$i DB_TIME=$v"
+  done
+fi
+
+#######################################
+# LMS CHECK
+#######################################
+if [[ "$IS_RAC" == "YES" ]]; then
+  report "INFO" "LMS RR Thread Validation"
+  LMS=$(ps -eLo cls,cmd | grep ora_lms | grep -v ASM | grep -v grep || true)
+  [[ -z "$LMS" ]] && report "CRITICAL" "No LMS processes found" || report "OK" "LMS processes present"
+fi
+
+report "INFO" "Health check completed"
+report "INFO" "Log file: $LOG_FILE"
+}
+
+#######################################
+# MAIN
+#######################################
+[[ "$#" -eq 0 ]] && usage
+
+if [[ "$1" == "--all" ]]; then
+  for SID in $(get_running_sids); do
+    run_health_check "$SID"
+  done
+elif [[ "$1" == "-d" && -n "${2:-}" ]]; then
+  ps -ef | grep "[o]ra_pmon_${2}$" >/dev/null || { echo "[ERROR] SID $2 not running"; exit 1; }
+  run_health_check "$2"
+else
+  usage
+fi
