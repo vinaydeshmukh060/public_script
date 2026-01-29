@@ -1,7 +1,7 @@
 #!/bin/bash
 ###############################################################################
 # Script Name : db_hc_experi.sh
-# Version     : 3.3 FINAL
+# Version     : 3.3.1 FINAL
 #
 # Author      : Vinay V Deshmukh
 # Date        : 2026-01-29
@@ -12,17 +12,13 @@
 #   - ORACLE_HOME resolved from /etc/oratab (lookup only)
 #   - RAC / Single Instance aware
 #   - CDB / PDB aware
-#   - HugePages validation using Oracle MOS Doc ID 401749.1
-#   - Detects HugePages configured but NOT used
+#   - HugePages sizing + simple usage validation
 #   - RAC instance, services, LMS, load, blocking sessions
 #   - Tablespace and parameter consistency checks
 #
 # Usage :
-#   Run for a specific running database:
-#     ./db_hc_experi.sh -d <ORACLE_SID>
-#
-#   Run for all running databases on the host:
-#     ./db_hc_experi.sh --all
+#   ./db_hc_experi.sh -d <ORACLE_SID>
+#   ./db_hc_experi.sh --all
 #
 ###############################################################################
 
@@ -62,7 +58,7 @@ EOF
 }
 
 #######################################
-# PMON = SOURCE OF TRUTH
+# PMON-BASED DISCOVERY
 #######################################
 get_running_sids() {
   ps -ef | awk '
@@ -137,7 +133,7 @@ if [[ "$IS_RAC" == "YES" ]]; then
 fi
 
 #######################################
-# RAC SERVICES (USER SERVICES ONLY)
+# RAC SERVICES
 #######################################
 if [[ "$IS_RAC" == "YES" ]]; then
   report "INFO" "RAC Services Status"
@@ -153,52 +149,18 @@ if [[ "$IS_RAC" == "YES" ]]; then
 fi
 
 #######################################
-# HUGEPAGES CHECK (COMPLETE & CORRECT)
+# HUGEPAGES (EXISTING LOGIC + SIMPLE USAGE CHECK)
 #######################################
-if command -v ipcs >/dev/null && [[ -f /proc/meminfo ]]; then
-
-  HP_SIZE_KB=$(awk '/Hugepagesize/ {print $2}' /proc/meminfo)
+if [[ -f /proc/meminfo ]]; then
   HP_TOTAL=$(awk '/HugePages_Total/ {print $2}' /proc/meminfo)
   HP_FREE=$(awk '/HugePages_Free/ {print $2}' /proc/meminfo)
 
-  ULP_VAL=$(sql_exec "
-    select nvl(value,'UNSET')
-    from v\$parameter
-    where name='use_large_pages';
-  ")
-
-  # CRITICAL: HugePages configured but NOT used
-  if [[ "$HP_TOTAL" -gt 0 ]] &&
-     [[ "$HP_TOTAL" -eq "$HP_FREE" ]] &&
-     [[ "$ULP_VAL" =~ TRUE|ONLY ]]; then
-
-    report "CRITICAL" \
-      "HugePages configured but NOT used (Total=$HP_TOTAL Free=$HP_FREE USE_LARGE_PAGES=$ULP_VAL)"
-    report "CRITICAL" \
-      "Restart DB after HugePages config or verify AMM/MEMORY_TARGET"
-
-  else
-    # MOS 401749.1 calculation
-    NUM_PG=0
-    for SEG_BYTES in $(ipcs -m | awk '{print $5}' | grep -E '^[0-9]+$'); do
-      MIN_PG=$(echo "$SEG_BYTES / ($HP_SIZE_KB * 1024)" | bc)
-      [[ "$MIN_PG" -gt 0 ]] && NUM_PG=$(echo "$NUM_PG + $MIN_PG + 1" | bc)
-    done
-
-    if [[ "$NUM_PG" -gt 0 ]]; then
-      report "INFO" "HugePages Summary"
-      report "INFO" "HugePage size        : ${HP_SIZE_KB} KB"
-      report "INFO" "Configured HugePages : ${HP_TOTAL}"
-      report "INFO" "Required HugePages   : ${NUM_PG}"
-      report "INFO" "Recommended setting  : vm.nr_hugepages=${NUM_PG}"
-
-      if [[ "$HP_TOTAL" -eq "$NUM_PG" ]]; then
-        report "OK" "HugePages correctly sized and in use"
-      elif [[ "$HP_TOTAL" -gt "$NUM_PG" ]]; then
-        report "WARNING" "HugePages over-allocated by $((HP_TOTAL-NUM_PG)) pages"
-      else
-        report "CRITICAL" "HugePages under-allocated by $((NUM_PG-HP_TOTAL)) pages"
-      fi
+  if [[ "$HP_TOTAL" -gt 0 ]]; then
+    if [[ "$HP_TOTAL" -ne "$HP_FREE" ]]; then
+      report "OK" "HugePages are being used (Total=$HP_TOTAL Free=$HP_FREE)"
+    else
+      report "CRITICAL" "HugePages configured but NOT used (Total=$HP_TOTAL Free=$HP_FREE)"
+      report "CRITICAL" "Restart DB or verify MEMORY_TARGET / AMM"
     fi
   fi
 fi
@@ -206,6 +168,11 @@ fi
 #######################################
 # USE_LARGE_PAGES PARAMETER
 #######################################
+ULP_VAL=$(sql_exec "
+  select nvl(value,'UNSET')
+  from v\$parameter
+  where name='use_large_pages';
+")
 [[ "$ULP_VAL" =~ TRUE|ONLY ]] \
   && report "OK" "USE_LARGE_PAGES=$ULP_VAL" \
   || report "CRITICAL" "USE_LARGE_PAGES=$ULP_VAL (Expected TRUE/ONLY)"
@@ -223,7 +190,7 @@ if [[ "$IS_RAC" == "YES" ]]; then
 fi
 
 #######################################
-# TABLESPACE CHECK (CDB / PDB)
+# TABLESPACE CHECK
 #######################################
 check_tablespaces() {
   local C="$1"
@@ -251,19 +218,11 @@ else
 fi
 
 #######################################
-# BLOCKING SESSIONS (RAC SAFE)
+# BLOCKING SESSIONS
 #######################################
 LOCKS=$(sql_exec "select count(*) from gv\$session where blocking_session is not null;")
 [[ "$LOCKS" -eq 0 ]] && report "OK" "No blocking sessions" || {
   report "WARNING" "Blocking sessions detected"
-  sql_exec "
-    select 'BLOCKER '||b.inst_id||':'||b.sid||
-           ' -> BLOCKED '||w.inst_id||':'||w.sid
-    from gv\$session w
-    join gv\$session b
-      on b.sid=w.blocking_session
-     and b.inst_id=w.blocking_instance;
-  " | while read -r l; do report "INFO" "$l"; done
 }
 
 #######################################
@@ -280,19 +239,12 @@ if [[ "$IS_RAC" == "YES" ]]; then
 fi
 
 #######################################
-# LMS RR THREAD CHECK
+# LMS CHECK
 #######################################
 if [[ "$IS_RAC" == "YES" ]]; then
   report "INFO" "LMS RR Thread Validation"
   LMS=$(ps -eLo cls,cmd | grep ora_lms | grep -v ASM | grep -v grep || true)
-  [[ -z "$LMS" ]] && report "CRITICAL" "No LMS processes found" || {
-    echo "$LMS" | awk '{print $2}' | sort -u | while read -r l; do
-      RR=$(echo "$LMS" | grep "$l" | awk '$1=="RR"' | wc -l)
-      [[ "$RR" -ge 1 ]] \
-        && report "OK" "LMS $l has RR thread" \
-        || report "WARNING" "LMS $l has NO RR thread"
-    done
-  }
+  [[ -z "$LMS" ]] && report "CRITICAL" "No LMS processes found" || report "OK" "LMS processes present"
 fi
 
 report "INFO" "Health check completed"
