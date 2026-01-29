@@ -1,7 +1,7 @@
 #!/bin/bash
 ###############################################################################
 # Script Name : db_hc_experi.sh
-# Version     : 2.6 FINAL
+# Version     : 2.7 FINAL
 # Purpose     : Oracle DB Health Check (RAC / CDB / PDB aware)
 ###############################################################################
 
@@ -89,22 +89,77 @@ IS_RAC=$(sql_exec "select case when count(*)>1 then 'YES' else 'NO' end from gv\
 report "INFO" "DB=$DB_NAME ROLE=$DB_ROLE CDB=$IS_CDB RAC=$IS_RAC"
 
 #######################################
-# HUGEPAGES CHECK (RESTORED)
+# HUGEPAGES CHECK + RECOMMENDATION
 #######################################
 if [[ -f /proc/meminfo ]]; then
   HP_TOTAL=$(awk '/HugePages_Total/ {print $2}' /proc/meminfo)
   HP_FREE=$(awk '/HugePages_Free/ {print $2}' /proc/meminfo)
   HP_RSVD=$(awk '/HugePages_Rsvd/ {print $2}' /proc/meminfo)
+  HP_SIZE_KB=$(awk '/Hugepagesize/ {print $2}' /proc/meminfo)
 
   if [[ "$HP_TOTAL" -eq 0 ]]; then
     report "CRITICAL" "HugePages NOT configured"
-  elif [[ "$HP_FREE" -gt 0 ]]; then
-    report "WARNING" "HugePages free=${HP_FREE} reserved=${HP_RSVD} total=${HP_TOTAL}"
+  elif [[ "$HP_FREE" -eq 0 ]]; then
+    report "OK" "HugePages fully allocated (total=${HP_TOTAL})"
+  elif [[ "$HP_FREE" -eq "$HP_RSVD" ]]; then
+    report "OK" "HugePages reserved=${HP_RSVD} free=${HP_FREE} (expected)"
   else
-    report "OK" "HugePages fully utilized (total=${HP_TOTAL})"
+    report "WARNING" "HugePages free=${HP_FREE} reserved=${HP_RSVD} total=${HP_TOTAL}"
   fi
+fi
+
+#######################################
+# USE_LARGE_PAGES PARAMETER CHECK
+#######################################
+ULP_VAL=$(sql_exec "
+select nvl(value,'UNSET')
+from v\$parameter
+where name='use_large_pages';
+")
+
+case "$ULP_VAL" in
+  ONLY|TRUE)
+    report "OK" "USE_LARGE_PAGES=${ULP_VAL}"
+    ;;
+  *)
+    report "CRITICAL" "USE_LARGE_PAGES=${ULP_VAL} (Expected ONLY or TRUE)"
+    ;;
+esac
+
+#######################################
+# RAC PARAMETER CONSISTENCY CHECKS
+#######################################
+if [[ "$IS_RAC" == "YES" ]]; then
+  report "INFO" "RAC parameter consistency checks"
+
+  for PARAM in use_large_pages memory_target sga_target sga_max_size cluster_database; do
+    CNT=$(sql_exec "
+    select count(distinct value)
+    from gv\$parameter
+    where name='${PARAM}';
+    ")
+
+    if [[ "$CNT" -gt 1 ]]; then
+      report "CRITICAL" "RAC parameter ${PARAM} inconsistent across instances"
+      sql_exec "
+      select inst_id, value
+      from gv\$parameter
+      where name='${PARAM}'
+      order by inst_id;
+      " | while read -r line; do
+          report "INFO" "${PARAM} -> ${line}"
+      done
+    else
+      VAL=$(sql_exec "
+      select distinct value
+      from gv\$parameter
+      where name='${PARAM}';
+      ")
+      report "OK" "RAC parameter ${PARAM} consistent (${VAL})"
+    fi
+  done
 else
-  report "INFO" "HugePages check skipped (unsupported OS)"
+  report "INFO" "Non-RAC DB – RAC consistency checks skipped"
 fi
 
 #######################################
@@ -142,66 +197,25 @@ else
 fi
 
 #######################################
-# FRA CHECK (SINGLE ROW – NO DUPLICATES)
+# LOCKING SESSION CHECK
 #######################################
-FRA_OUT=$(sql_exec "
-select
- trim(to_char(nvl(space_limit/1024/1024/1024,0),'999990.99'))||'|'||
- trim(to_char(nvl(space_used/1024/1024/1024,0),'999990.99'))||'|'||
- trim(to_char(nvl(space_reclaimable/1024/1024/1024,0),'999990.99'))||'|'||
- case
-   when space_limit > 0 then
-     trim(to_char(
-       (space_limit-space_used+space_reclaimable)*100/space_limit,
-       '999990.99'
-     ))
-   else '0'
- end
-from v\$recovery_file_dest
-where space_limit is not null
-fetch first 1 row only;
-")
-
-if [[ -n "$FRA_OUT" ]]; then
-  IFS='|' read -r FRA_SIZE FRA_USED FRA_RECLAIM FRA_FREE <<< "$FRA_OUT"
-  report "INFO" "FRA Size=${FRA_SIZE}GB Used=${FRA_USED}GB Reclaimable=${FRA_RECLAIM}GB Free=${FRA_FREE}%"
-else
-  report "INFO" "FRA not configured"
-fi
-
-#######################################
-# FRA ARCHIVE & FLASHBACK USAGE
-#######################################
-FRA_AF=$(sql_exec "
-select
- trim(to_char(nvl(sum(case when file_type='ARCHIVED LOG' then percent_space_used end),0),'999990.99'))||'|'||
- trim(to_char(nvl(sum(case when file_type='FLASHBACK LOG' then percent_space_used end),0),'999990.99'))
-from v\$flash_recovery_area_usage;
-")
-
-IFS='|' read -r ARCH_PCT FB_PCT <<< "$FRA_AF"
-report "INFO" "FRA Usage ARCHIVE=${ARCH_PCT}% FLASHBACK=${FB_PCT}%"
-
-#######################################
-# LOCKING SESSION CHECK (BLOCKER -> BLOCKED)
-#######################################
-LOCK_CNT=$(sql_exec "select count(*) from gv\$lock where block = 1;")
+LOCK_CNT=$(sql_exec "select count(*) from gv\$lock where block=1;")
 
 if [[ "$LOCK_CNT" -eq 0 ]]; then
   report "OK" "No blocking sessions"
 else
   report "WARNING" "Blocking sessions detected"
   sql_exec "
-select
- 'BLOCKER '||b.sid||','||b.serial#||' ('||b.username||') -> '||
- 'BLOCKED '||w.sid||','||w.serial#||' ('||w.username||')'
-from gv\$session b
-join gv\$session w
-  on b.inst_id = w.inst_id
- and b.sid     = w.blocking_session
-where w.blocking_session is not null;
-" | while read -r line; do
-    report "INFO" "$line"
+  select
+   'BLOCKER '||b.sid||','||b.serial#||' ('||b.username||') -> '||
+   'BLOCKED '||w.sid||','||w.serial#||' ('||w.username||')'
+  from gv\$session b
+  join gv\$session w
+    on b.inst_id=w.inst_id
+   and b.sid=w.blocking_session
+  where w.blocking_session is not null;
+  " | while read -r line; do
+      report "INFO" "$line"
   done
 fi
 
@@ -214,14 +228,12 @@ if [[ "$IS_RAC" == "YES" ]]; then
   if [[ -z "$LMS_RAW" ]]; then
     report "CRITICAL" "No LMS processes found"
   else
-    echo "$LMS_RAW" | awk '{print $NF}' | sort -u | while read -r LMS_NAME; do
-      LMS_LINES=$(echo "$LMS_RAW" | grep "$LMS_NAME")
-      RR_COUNT=$(echo "$LMS_LINES" | awk '$3=="RR"' | wc -l)
-
-      if [[ "$RR_COUNT" -ge 1 ]]; then
-        report "OK" "LMS $LMS_NAME has RR thread"
+    echo "$LMS_RAW" | awk '{print $NF}' | sort -u | while read -r LMS; do
+      RR_CNT=$(echo "$LMS_RAW" | grep "$LMS" | awk '$3=="RR"' | wc -l)
+      if [[ "$RR_CNT" -ge 1 ]]; then
+        report "OK" "LMS $LMS has RR thread"
       else
-        report "WARNING" "LMS $LMS_NAME has NO RR thread"
+        report "WARNING" "LMS $LMS has NO RR thread"
       fi
     done
   fi
