@@ -1,7 +1,7 @@
 #!/bin/bash
 ###############################################################################
 # Script Name : db_hc_experi.sh
-# Version     : 3.2.3 FINAL
+# Version     : 3.2.2 FINAL
 #
 # Author      : Vinay V Deshmukh
 # Date        : 2026-01-29
@@ -9,11 +9,16 @@
 # Description :
 #   Comprehensive Oracle Database Health Check Script.
 #   - PMON-driven detection of running databases
-#   - ORACLE_HOME resolved from /etc/oratab
+#   - ORACLE_HOME resolved from /etc/oratab (lookup only)
 #   - RAC / Single Instance aware
 #   - CDB / PDB aware
-#   - HugePages validated (strict & correct)
-#   - RAC instance, services, LMS, load checks
+#   - HugePages validated using Oracle MOS Doc ID 401749.1
+#   - RAC instance status, services, load, LMS checks
+#   - Tablespace, blocking session, parameter consistency checks
+#
+# Usage :
+#   ./db_hc_experi.sh -d <ORACLE_SID>
+#   ./db_hc_experi.sh --all
 #
 ###############################################################################
 
@@ -53,16 +58,22 @@ EOF
 }
 
 #######################################
-# PMON DISCOVERY
+# PMON-BASED DISCOVERY (SOURCE OF TRUTH)
 #######################################
 get_running_sids() {
-  ps -ef | awk '/ora_pmon_/ && !/ASM/ {
-    sub(".*ora_pmon_", "", $NF); print $NF
-  }' | sort -u
+  ps -ef | awk '
+    /ora_pmon_/ && !/ASM/ {
+      sub(".*ora_pmon_", "", $NF)
+      print $NF
+    }
+  ' | sort -u
 }
 
 get_oracle_home() {
-  awk -F: -v s="$1" '$1==s && $2!~/^#/ {print $2}' "$ORATAB"
+  local sid="$1"
+  awk -F: -v s="$sid" '
+    $1 == s && $2 !~ /^#/ && $2 != "" {print $2}
+  ' "$ORATAB"
 }
 
 #######################################
@@ -74,18 +85,22 @@ ORACLE_SID="$1"
 DATE=$(date '+%Y%m%d_%H%M%S')
 
 ORACLE_HOME=$(get_oracle_home "$ORACLE_SID")
-[[ -z "$ORACLE_HOME" || ! -d "$ORACLE_HOME" ]] && {
-  echo "[CRITICAL] ORACLE_HOME not found for SID=$ORACLE_SID"
+if [[ -z "$ORACLE_HOME" || ! -d "$ORACLE_HOME" ]]; then
+  echo "[CRITICAL] ORACLE_HOME not found for running SID=$ORACLE_SID"
   return
-}
+fi
 
 export ORACLE_SID ORACLE_HOME
 export PATH=$ORACLE_HOME/bin:/usr/bin:/usr/sbin
 export LD_LIBRARY_PATH=$ORACLE_HOME/lib
+export TNS_ADMIN=$ORACLE_HOME/network/admin
 
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/db_health_${ORACLE_SID}_${DATE}.log"
 
+#######################################
+# HEADER
+#######################################
 echo "===================================================="
 echo " Oracle DB Health Check Started"
 echo " SID : $ORACLE_SID"
@@ -103,70 +118,103 @@ IS_RAC=$(sql_exec "select case when count(*)>1 then 'YES' else 'NO' end from gv\
 report "INFO" "DB=$DB_NAME ROLE=$DB_ROLE CDB=$IS_CDB RAC=$IS_RAC"
 
 #######################################
-# HUGEPAGES CHECK (STRICT & CORRECT)
+# RAC INSTANCE STATUS
+#######################################
+if [[ "$IS_RAC" == "YES" ]]; then
+  report "INFO" "RAC Instance Status"
+  sql_exec "
+    select inst_id, instance_name, host_name, status,
+           to_char(startup_time,'YYYY-MM-DD HH24:MI')
+    from gv\$instance
+    order by inst_id;
+  " | while read -r i n h s t; do
+      report "INFO" "INST=$i NAME=$n HOST=$h STATUS=$s STARTED=$t"
+  done
+fi
+
+#######################################
+# RAC SERVICES (USER ONLY)
+#######################################
+if [[ "$IS_RAC" == "YES" ]]; then
+  report "INFO" "RAC Services Status"
+  sql_exec "
+    select name, inst_id
+    from gv\$active_services
+    where name not like 'SYS$%'
+      and name not like 'SYS%'
+    order by name, inst_id;
+  " | while read -r svc inst; do
+      report "INFO" "SERVICE=$svc RUNNING_ON_INST=$inst"
+  done
+fi
+
+#######################################
+# HUGEPAGES CHECK (SUMMARY + USAGE + MOS)
 #######################################
 if [[ -f /proc/meminfo ]]; then
 
+  HP_SIZE_KB=$(awk '/Hugepagesize/ {print $2}' /proc/meminfo)
   HP_TOTAL=$(awk '/HugePages_Total/ {print $2}' /proc/meminfo)
-  HP_FREE=$(awk  '/HugePages_Free/  {print $2}' /proc/meminfo)
-  HP_RSVD=$(awk  '/HugePages_Rsvd/  {print $2}' /proc/meminfo)
-  HP_SIZE_KB=$(awk '/Hugepagesize/   {print $2}' /proc/meminfo)
+  HP_FREE=$(awk '/HugePages_Free/ {print $2}' /proc/meminfo)
+
+  report "INFO" "HugePages Summary: Total=${HP_TOTAL} Free=${HP_FREE} PageSize=${HP_SIZE_KB}KB"
 
   ULP=$(sql_exec "
-    select value from v\$parameter where name='use_large_pages';
+    select nvl(value,'UNSET')
+    from v\$parameter
+    where name='use_large_pages';
   ")
 
-  report "INFO" "HugePages Summary: Total=$HP_TOTAL Free=$HP_FREE Rsvd=$HP_RSVD PageSize=${HP_SIZE_KB}KB"
-
-  if [[ "$HP_TOTAL" -eq 0 ]]; then
-    report "WARNING" "HugePages not configured at OS level"
-  else
-    if [[ "$HP_FREE" -lt "$HP_TOTAL" || "$HP_RSVD" -gt 0 ]]; then
-      report "OK" "HugePages are being used by Oracle"
+  if [[ "$HP_TOTAL" -gt 0 ]]; then
+    if [[ "$HP_TOTAL" -ne "$HP_FREE" ]]; then
+      report "OK" "HugePages are being used"
     else
-      if [[ "$ULP" =~ ^(TRUE|ONLY)$ ]]; then
-        report "CRITICAL" "HugePages configured but NOT used by Oracle"
-        report "CRITICAL" "Likely causes: DB started before HugePages, AMM enabled, restart required"
+      if [[ "$ULP" =~ TRUE|ONLY ]]; then
+        report "CRITICAL" "HugePages configured but NOT used – check with Unix team"
+        report "CRITICAL" "USE_LARGE_PAGES=$ULP, DB restart / AMM / startup order issue"
       else
-        report "WARNING" "HugePages configured but use_large_pages=$ULP"
+        report "CRITICAL" "HugePages configured at OS level but database level is set to FALSE"
+        report "CRITICAL" "Set use_large_pages=TRUE|ONLY and restart database"
       fi
     fi
-  fi
-
-  #######################################
-  # USE_LARGE_PAGES PARAMETER
-  #######################################
-  if [[ "$ULP" =~ ^(TRUE|ONLY)$ ]]; then
-    report "OK" "USE_LARGE_PAGES=$ULP"
   else
-    report "WARNING" "USE_LARGE_PAGES=$ULP"
+    report "WARNING" "HugePages not configured at OS level"
   fi
 
-  #######################################
-  # HugePages Sizing (SAFE)
-  #######################################
-  if command -v ipcs >/dev/null 2>&1 && [[ "$HP_TOTAL" -gt 0 ]]; then
-    REQUIRED_HP=$(ipcs -m | awk -v sz="$HP_SIZE_KB" '
-      NR>3 && $5 ~ /^[0-9]+$/ {
-        pages = int(($5 + (sz*1024) - 1) / (sz*1024))
-        total += pages
-      }
-      END {print total}
-    ')
+  if command -v ipcs >/dev/null 2>&1; then
+    NUM_PG=0
+    for SEG in $(ipcs -m | awk '{print $5}' | grep -E '^[0-9]+$'); do
+      PAGES=$(echo "$SEG / ($HP_SIZE_KB * 1024)" | bc)
+      [[ "$PAGES" -gt 0 ]] && NUM_PG=$(echo "$NUM_PG + $PAGES + 1" | bc)
+    done
 
-    if [[ -n "$REQUIRED_HP" && "$REQUIRED_HP" -gt 0 ]]; then
-      report "INFO" "HugePages Sizing: configured=$HP_TOTAL required=$REQUIRED_HP"
-      report "INFO" "Recommended: vm.nr_hugepages=$REQUIRED_HP"
+    if [[ "$NUM_PG" -gt 0 ]]; then
+      report "INFO" "HugePages Sizing: configured=$HP_TOTAL required=$NUM_PG"
+      report "INFO" "Recommended: vm.nr_hugepages=$NUM_PG"
 
-      if [[ "$HP_TOTAL" -eq "$REQUIRED_HP" ]]; then
-        report "OK" "HugePages correctly sized"
-      elif [[ "$HP_TOTAL" -gt "$REQUIRED_HP" ]]; then
-        report "WARNING" "HugePages over-allocated by $((HP_TOTAL-REQUIRED_HP))"
-      else
-        report "CRITICAL" "HugePages under-allocated by $((REQUIRED_HP-HP_TOTAL))"
-      fi
+      [[ "$HP_TOTAL" -eq "$NUM_PG" ]] && report "OK" "HugePages correctly sized"
+      [[ "$HP_TOTAL" -gt "$NUM_PG" ]] && report "WARNING" "HugePages over-allocated by $((HP_TOTAL-NUM_PG))"
+      [[ "$HP_TOTAL" -lt "$NUM_PG" ]] && report "CRITICAL" "HugePages under-allocated by $((NUM_PG-HP_TOTAL))"
     fi
   fi
+fi
+
+#######################################
+# USE_LARGE_PAGES PARAMETER (UNCHANGED)
+#######################################
+[[ "$ULP" =~ ONLY|TRUE ]] \
+  && report "OK" "USE_LARGE_PAGES=$ULP" \
+  || report "CRITICAL" "USE_LARGE_PAGES=$ULP"
+
+#######################################
+# RAC PARAMETER CONSISTENCY
+#######################################
+if [[ "$IS_RAC" == "YES" ]]; then
+  for P in use_large_pages sga_target sga_max_size memory_target cluster_database; do
+    CNT=$(sql_exec "select count(distinct value) from gv\$parameter where name='$P';")
+    [[ "$CNT" -gt 1 ]] && report "CRITICAL" "RAC param $P inconsistent" \
+                      || report "OK" "RAC param $P consistent"
+  done
 fi
 
 #######################################
@@ -179,7 +227,7 @@ check_tablespaces() {
     from dba_tablespace_usage_metrics
     where used_percent >= $TBS_WARN;
   " | while read -r t u; do
-    (( u >= TBS_CRIT )) \
+    (( $(echo "$u >= $TBS_CRIT" | bc) )) \
       && report "CRITICAL" "[$C] $t ${u}%" \
       || report "WARNING"  "[$C] $t ${u}%"
   done
@@ -201,16 +249,30 @@ fi
 # BLOCKING SESSIONS
 #######################################
 LOCKS=$(sql_exec "select count(*) from gv\$session where blocking_session is not null;")
-[[ "$LOCKS" -eq 0 ]] && report "OK" "No blocking sessions" \
-                    || report "WARNING" "Blocking sessions detected"
+[[ "$LOCKS" -eq 0 ]] && report "OK" "No blocking sessions" || {
+  report "WARNING" "Blocking sessions detected"
+}
 
 #######################################
-# LMS CHECK (RAC ONLY)
+# RAC LOAD SUMMARY
 #######################################
 if [[ "$IS_RAC" == "YES" ]]; then
-  LMS=$(ps -eLo cmd | grep ora_lms | grep -v ASM | grep -v grep || true)
-  [[ -z "$LMS" ]] && report "CRITICAL" "No LMS processes found" \
-                  || report "OK" "LMS processes present"
+  report "INFO" "RAC Load Summary (DB Time)"
+  sql_exec "
+    select inst_id, round(value/100,2)
+    from gv\$sysstat where name='DB time';
+  " | while read -r i v; do
+      report "INFO" "INST=$i DB_TIME=$v"
+  done
+fi
+
+#######################################
+# LMS CHECK
+#######################################
+if [[ "$IS_RAC" == "YES" ]]; then
+  report "INFO" "LMS RR Thread Validation"
+  LMS=$(ps -eLo cls,cmd | grep ora_lms | grep -v ASM | grep -v grep || true)
+  [[ -z "$LMS" ]] && report "CRITICAL" "No LMS processes found" || report "OK" "LMS processes present"
 fi
 
 report "INFO" "Health check completed"
@@ -227,9 +289,7 @@ if [[ "$1" == "--all" ]]; then
     run_health_check "$SID"
   done
 elif [[ "$1" == "-d" && -n "${2:-}" ]]; then
-  ps -ef | grep "[o]ra_pmon_${2}$" >/dev/null || {
-    echo "[ERROR] SID $2 not running"; exit 1;
-  }
+  ps -ef | grep "[o]ra_pmon_${2}$" >/dev/null || { echo "[ERROR] SID $2 not running"; exit 1; }
   run_health_check "$2"
 else
   usage
