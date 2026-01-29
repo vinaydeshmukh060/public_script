@@ -1,7 +1,7 @@
 #!/bin/bash
 ###############################################################################
 # Script Name : db_hc_experi.sh
-# Version     : 2.5 FINAL
+# Version     : 2.6 FINAL
 # Purpose     : Oracle DB Health Check (RAC / CDB / PDB aware)
 ###############################################################################
 
@@ -89,6 +89,25 @@ IS_RAC=$(sql_exec "select case when count(*)>1 then 'YES' else 'NO' end from gv\
 report "INFO" "DB=$DB_NAME ROLE=$DB_ROLE CDB=$IS_CDB RAC=$IS_RAC"
 
 #######################################
+# HUGEPAGES CHECK (RESTORED)
+#######################################
+if [[ -f /proc/meminfo ]]; then
+  HP_TOTAL=$(awk '/HugePages_Total/ {print $2}' /proc/meminfo)
+  HP_FREE=$(awk '/HugePages_Free/ {print $2}' /proc/meminfo)
+  HP_RSVD=$(awk '/HugePages_Rsvd/ {print $2}' /proc/meminfo)
+
+  if [[ "$HP_TOTAL" -eq 0 ]]; then
+    report "CRITICAL" "HugePages NOT configured"
+  elif [[ "$HP_FREE" -gt 0 ]]; then
+    report "WARNING" "HugePages free=${HP_FREE} reserved=${HP_RSVD} total=${HP_TOTAL}"
+  else
+    report "OK" "HugePages fully utilized (total=${HP_TOTAL})"
+  fi
+else
+  report "INFO" "HugePages check skipped (unsupported OS)"
+fi
+
+#######################################
 # TABLESPACE CHECK (>80% ONLY)
 #######################################
 check_tablespaces() {
@@ -151,7 +170,7 @@ else
 fi
 
 #######################################
-# FRA ARCHIVE & FLASHBACK USAGE (ONCE)
+# FRA ARCHIVE & FLASHBACK USAGE
 #######################################
 FRA_AF=$(sql_exec "
 select
@@ -166,9 +185,7 @@ report "INFO" "FRA Usage ARCHIVE=${ARCH_PCT}% FLASHBACK=${FB_PCT}%"
 #######################################
 # LOCKING SESSION CHECK (BLOCKER -> BLOCKED)
 #######################################
-LOCK_CNT=$(sql_exec "
-select count(*) from gv\$lock where block = 1;
-")
+LOCK_CNT=$(sql_exec "select count(*) from gv\$lock where block = 1;")
 
 if [[ "$LOCK_CNT" -eq 0 ]]; then
   report "OK" "No blocking sessions"
