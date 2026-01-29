@@ -1,20 +1,20 @@
 #!/bin/bash
 ###############################################################################
 # Script Name : db_hc_experi.sh
-# Version     : 3.3.1 FINAL
+# Version     : 3.2.2 FINAL
 #
 # Author      : Vinay V Deshmukh
 # Date        : 2026-01-29
 #
 # Description :
 #   Comprehensive Oracle Database Health Check Script.
-#   - PMON-driven discovery of running databases
+#   - PMON-driven detection of running databases
 #   - ORACLE_HOME resolved from /etc/oratab (lookup only)
 #   - RAC / Single Instance aware
 #   - CDB / PDB aware
-#   - HugePages sizing + simple usage validation
-#   - RAC instance, services, LMS, load, blocking sessions
-#   - Tablespace and parameter consistency checks
+#   - HugePages validated using Oracle MOS Doc ID 401749.1
+#   - RAC instance status, services, load, LMS checks
+#   - Tablespace, blocking session, parameter consistency checks
 #
 # Usage :
 #   ./db_hc_experi.sh -d <ORACLE_SID>
@@ -58,7 +58,7 @@ EOF
 }
 
 #######################################
-# PMON-BASED DISCOVERY
+# PMON-BASED DISCOVERY (SOURCE OF TRUTH)
 #######################################
 get_running_sids() {
   ps -ef | awk '
@@ -133,7 +133,7 @@ if [[ "$IS_RAC" == "YES" ]]; then
 fi
 
 #######################################
-# RAC SERVICES
+# RAC SERVICES (USER ONLY)
 #######################################
 if [[ "$IS_RAC" == "YES" ]]; then
   report "INFO" "RAC Services Status"
@@ -149,33 +149,75 @@ if [[ "$IS_RAC" == "YES" ]]; then
 fi
 
 #######################################
-# HUGEPAGES (EXISTING LOGIC + SIMPLE USAGE CHECK)
+# HUGEPAGES CHECK (MOS 401749.1 COMPLIANT)
 #######################################
 if [[ -f /proc/meminfo ]]; then
-  HP_TOTAL=$(awk '/HugePages_Total/ {print $2}' /proc/meminfo)
-  HP_FREE=$(awk '/HugePages_Free/ {print $2}' /proc/meminfo)
 
-  if [[ "$HP_TOTAL" -gt 0 ]]; then
-    if [[ "$HP_TOTAL" -ne "$HP_FREE" ]]; then
-      report "OK" "HugePages are being used (Total=$HP_TOTAL Free=$HP_FREE)"
+  HP_TOTAL=$(awk '/HugePages_Total/ {print $2}' /proc/meminfo)
+  HP_FREE=$(awk  '/HugePages_Free/  {print $2}' /proc/meminfo)
+  HP_RSVD=$(awk  '/HugePages_Rsvd/  {print $2}' /proc/meminfo)
+  HP_SIZE_KB=$(awk '/Hugepagesize/   {print $2}' /proc/meminfo)
+  ANON_HP_KB=$(awk '/AnonHugePages/ {print $2}' /proc/meminfo)
+
+  # Fetch once, keep global
+  ULP=$(sql_exec "
+    select value
+    from v\$parameter
+    where name='use_large_pages';
+  ")
+
+  report "INFO" "HugePages Summary: Total=$HP_TOTAL Free=$HP_FREE Rsvd=$HP_RSVD PageSize=${HP_SIZE_KB}KB AnonHP=${ANON_HP_KB}KB"
+
+  if [[ "$HP_TOTAL" -eq 0 ]]; then
+    report "WARNING" "HugePages not configured at OS level"
+  else
+    if [[ "$ANON_HP_KB" -gt 0 || "$HP_RSVD" -gt 0 ]]; then
+      report "OK" "HugePages are in use by Oracle"
     else
-      report "CRITICAL" "HugePages configured but NOT used (Total=$HP_TOTAL Free=$HP_FREE)"
-      report "CRITICAL" "Restart DB or verify MEMORY_TARGET / AMM"
+      if [[ "$ULP" =~ ^(TRUE|ONLY)$ ]]; then
+        report "CRITICAL" "HugePages configured but NOT used by Oracle"
+        report "CRITICAL" "Check AMM, startup order, or restart DB"
+      else
+        report "CRITICAL" "HugePages enabled at OS but use_large_pages=$ULP"
+        report "CRITICAL" "Set use_large_pages=TRUE or ONLY and restart DB"
+      fi
+    fi
+  fi
+
+  #######################################
+  # HugePages Sizing (SAFE, NO bc)
+  #######################################
+  if command -v ipcs >/dev/null 2>&1; then
+    REQUIRED_HP=$(ipcs -m | awk -v sz="$HP_SIZE_KB" '
+      NR>3 && $5 ~ /^[0-9]+$/ {
+        pages = int(($5 + (sz*1024) - 1) / (sz*1024))
+        total += pages
+      }
+      END {print total}
+    ')
+
+    if [[ -n "$REQUIRED_HP" && "$REQUIRED_HP" -gt 0 ]]; then
+      report "INFO" "HugePages Sizing: configured=$HP_TOTAL required=$REQUIRED_HP"
+      report "INFO" "Recommended: vm.nr_hugepages=$REQUIRED_HP"
+
+      if [[ "$HP_TOTAL" -eq "$REQUIRED_HP" ]]; then
+        report "OK" "HugePages correctly sized"
+      elif [[ "$HP_TOTAL" -gt "$REQUIRED_HP" ]]; then
+        report "WARNING" "HugePages over-allocated by $((HP_TOTAL-REQUIRED_HP))"
+      else
+        report "CRITICAL" "HugePages under-allocated by $((REQUIRED_HP-HP_TOTAL))"
+      fi
     fi
   fi
 fi
 
+
 #######################################
-# USE_LARGE_PAGES PARAMETER
+# USE_LARGE_PAGES PARAMETER (UNCHANGED)
 #######################################
-ULP_VAL=$(sql_exec "
-  select nvl(value,'UNSET')
-  from v\$parameter
-  where name='use_large_pages';
-")
-[[ "$ULP_VAL" =~ TRUE|ONLY ]] \
-  && report "OK" "USE_LARGE_PAGES=$ULP_VAL" \
-  || report "CRITICAL" "USE_LARGE_PAGES=$ULP_VAL (Expected TRUE/ONLY)"
+[[ "$ULP" =~ ONLY|TRUE ]] \
+  && report "OK" "USE_LARGE_PAGES=$ULP" \
+  || report "CRITICAL" "USE_LARGE_PAGES=$ULP"
 
 #######################################
 # RAC PARAMETER CONSISTENCY
@@ -183,9 +225,8 @@ ULP_VAL=$(sql_exec "
 if [[ "$IS_RAC" == "YES" ]]; then
   for P in use_large_pages sga_target sga_max_size memory_target cluster_database; do
     CNT=$(sql_exec "select count(distinct value) from gv\$parameter where name='$P';")
-    [[ "$CNT" -gt 1 ]] \
-      && report "CRITICAL" "RAC parameter $P inconsistent" \
-      || report "OK" "RAC parameter $P consistent"
+    [[ "$CNT" -gt 1 ]] && report "CRITICAL" "RAC param $P inconsistent" \
+                      || report "OK" "RAC param $P consistent"
   done
 fi
 
