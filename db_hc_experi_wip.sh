@@ -1,9 +1,8 @@
 #!/bin/bash
 ###############################################################################
 # Script Name : db_hc_experi.sh
-# Version     : 2.9 FINAL
+# Version     : 2.9.1 FINAL
 # Purpose     : Oracle DB Health Check (RAC / CDB / PDB aware)
-# HugePages   : Calculated using Oracle Doc ID 401749.1 logic
 ###############################################################################
 
 set -euo pipefail
@@ -124,7 +123,6 @@ fi
 # HUGEPAGES CHECK (ORACLE MOS 401749.1)
 #######################################
 if command -v ipcs >/dev/null 2>&1 && [[ -f /proc/meminfo ]]; then
-
   HP_SIZE_KB=$(awk '/Hugepagesize/ {print $2}' /proc/meminfo)
   HP_TOTAL=$(awk '/HugePages_Total/ {print $2}' /proc/meminfo)
 
@@ -138,82 +136,50 @@ if command -v ipcs >/dev/null 2>&1 && [[ -f /proc/meminfo ]]; then
 
   if [[ "$NUM_PG" -lt 1 ]]; then
     report "WARNING" "HugePages calculation skipped (no SHM segments found)"
+  elif [[ "$HP_TOTAL" -eq "$NUM_PG" ]]; then
+    report "OK" "HugePages correctly sized (configured=$HP_TOTAL required=$NUM_PG)"
+  elif [[ "$HP_TOTAL" -gt "$NUM_PG" ]]; then
+    report "WARNING" "HugePages over-allocated (configured=$HP_TOTAL required=$NUM_PG)"
   else
-    if [[ "$HP_TOTAL" -eq "$NUM_PG" ]]; then
-      report "OK" "HugePages correctly sized (configured=$HP_TOTAL required=$NUM_PG)"
-    elif [[ "$HP_TOTAL" -gt "$NUM_PG" ]]; then
-      report "WARNING" "HugePages over-allocated (configured=$HP_TOTAL required=$NUM_PG)"
-    else
-      report "CRITICAL" "HugePages under-allocated (configured=$HP_TOTAL required=$NUM_PG)"
-    fi
+    report "CRITICAL" "HugePages under-allocated (configured=$HP_TOTAL required=$NUM_PG)"
   fi
-else
-  report "WARNING" "HugePages check skipped (ipcs or /proc/meminfo missing)"
 fi
 
 #######################################
-# USE_LARGE_PAGES PARAMETER
+# RAC LOAD SUMMARY (DB TIME) – RESTORED
 #######################################
-ULP_VAL=$(sql_exec "
-select nvl(value,'UNSET')
-from v\$parameter
-where name='use_large_pages';
-")
+if [[ "$IS_RAC" == "YES" ]]; then
+  report "INFO" "RAC Load Summary (DB Time)"
 
-case "$ULP_VAL" in
-  ONLY|TRUE) report "OK" "USE_LARGE_PAGES=$ULP_VAL" ;;
-  *) report "CRITICAL" "USE_LARGE_PAGES=$ULP_VAL (Expected ONLY/TRUE)" ;;
-esac
-
-#######################################
-# TABLESPACE CHECK
-#######################################
-check_tablespaces() {
-  local C="$1"
   sql_exec "
-  select tablespace_name, round(used_percent,2)
-  from dba_tablespace_usage_metrics
-  where used_percent >= $TBS_WARN;
-  " | while read -r tbs used; do
-    [[ -z "$tbs" ]] && continue
-    if (( $(echo "$used >= $TBS_CRIT" | bc) )); then
-      report "CRITICAL" "[$C] TBS=$tbs USED=${used}%"
-    else
-      report "WARNING"  "[$C] TBS=$tbs USED=${used}%"
-    fi
+  select inst_id, round(value/100,2)
+  from gv\$sysstat
+  where name='DB time';
+  " | while read -r inst val; do
+      report "INFO" "INST=$inst DB_TIME=$val"
   done
-}
-
-if [[ "$IS_CDB" == "YES" ]]; then
-  sql_exec "alter session set container=CDB\$ROOT;"
-  check_tablespaces "CDB\$ROOT"
-  sql_exec "select name from v\$pdbs where open_mode='READ WRITE';" |
-  while read -r pdb; do
-    sql_exec "alter session set container=$pdb;"
-    check_tablespaces "$pdb"
-  done
-else
-  check_tablespaces "NON-CDB"
 fi
 
 #######################################
-# BLOCKING SESSIONS (RAC SAFE)
+# LMS CHECK (RESTORED)
 #######################################
-LOCK_CNT=$(sql_exec "select count(*) from gv\$session where blocking_session is not null;")
+if [[ "$IS_RAC" == "YES" ]]; then
+  report "INFO" "LMS RR Thread Validation"
 
-if [[ "$LOCK_CNT" -eq 0 ]]; then
-  report "OK" "No blocking sessions"
-else
-  report "WARNING" "Blocking sessions detected"
-  sql_exec "
-  select
-   'BLOCKER '||b.inst_id||':'||b.sid||','||b.serial#||
-   ' -> BLOCKED '||w.inst_id||':'||w.sid||','||w.serial#
-  from gv\$session w
-  join gv\$session b
-    on b.sid = w.blocking_session
-   and b.inst_id = w.blocking_instance;
-  " | while read -r line; do report "INFO" "$line"; done
+  LMS_RAW=$(ps -eLo user,pid,cls,priority,cmd | grep ora_lms | grep -v ASM | grep -v grep || true)
+
+  if [[ -z "$LMS_RAW" ]]; then
+    report "CRITICAL" "No LMS processes found"
+  else
+    echo "$LMS_RAW" | awk '{print $NF}' | sort -u | while read -r LMS; do
+      RR_CNT=$(echo "$LMS_RAW" | grep "$LMS" | awk '$3=="RR"' | wc -l)
+      if [[ "$RR_CNT" -ge 1 ]]; then
+        report "OK" "LMS $LMS has RR thread"
+      else
+        report "WARNING" "LMS $LMS has NO RR thread"
+      fi
+    done
+  fi
 fi
 
 #######################################
